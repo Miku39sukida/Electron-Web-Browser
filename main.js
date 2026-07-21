@@ -11,7 +11,7 @@ let downloadSettings = {
   lyricWindowSize: { width: 600, height: 150 },
   lyricSettings: {
     textColor: '#ffffff',
-    shadowColor: 'rgba(0, 0, 0, 0.8)',
+    strokeColor: '#000000',
     fontSize: 28,
     fontFamily: 'Microsoft YaHei',
     karaokeMode: false
@@ -47,6 +47,17 @@ function loadSettings() {
     if (fs.existsSync(settingsFile)) {
       const saved = JSON.parse(fs.readFileSync(settingsFile, 'utf8'))
       downloadSettings = { ...downloadSettings, ...saved }
+      if (saved.lyricSettings) {
+        const defaults = {
+          textColor: '#ffffff',
+          strokeColor: '#000000',
+          fontSize: 28,
+          fontFamily: 'Microsoft YaHei',
+          karaokeMode: false
+        }
+        downloadSettings.lyricSettings = { ...defaults, ...saved.lyricSettings }
+        delete downloadSettings.lyricSettings.shadowColor
+      }
     }
   } catch (err) {
     console.error('Failed to load settings:', err)
@@ -640,7 +651,9 @@ function createLyricWindow(ownerWin = null) {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: false
+      backgroundThrottling: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true
     }
   })
   
@@ -661,6 +674,18 @@ function createLyricWindow(ownerWin = null) {
 
   lyricWindow.webContents.on('ready-to-show', () => {
     lyricWindow.setIgnoreMouseEvents(true)
+  })
+
+  lyricWindow.webContents.on('did-finish-load', () => {
+    if (lyricWindow && !lyricWindow.isDestroyed()) {
+      const defaultSettings = { ...downloadSettings.lyricSettings, fontFamily: 'Microsoft YaHei' }
+      lyricWindow.webContents.send('lyric-settings-change', defaultSettings)
+      setTimeout(() => {
+        if (lyricWindow && !lyricWindow.isDestroyed()) {
+          lyricWindow.webContents.send('lyric-settings-change', downloadSettings.lyricSettings)
+        }
+      }, 300)
+    }
   })
 
   lyricWindow.on('closed', () => {
@@ -846,7 +871,11 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
   const fs = require('fs')
   const path = require('path')
   
-  if (process.platform === 'win32') {
+  function pathToFileUrl(p) {
+    return 'file:///' + p.replace(/\\/g, '/')
+  }
+  
+  function findFontFile(fontFamily) {
     try {
       const fontKeyScript = `(Get-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts').Property | Where-Object { $_ -match '${fontFamily}' } | Select-Object -First 1`
       const fontKey = execSync(`powershell -Command "${fontKeyScript}"`, { encoding: 'utf-8' }).trim()
@@ -857,15 +886,7 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
         
         if (fontFileName) {
           const fullPath = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts', fontFileName)
-          if (fs.existsSync(fullPath)) {
-            const buffer = fs.readFileSync(fullPath)
-            const ext = fontFileName.split('.').pop().toLowerCase()
-            let mimeType = 'font/truetype'
-            if (ext === 'otf') mimeType = 'font/opentype'
-            if (ext === 'woff') mimeType = 'font/woff'
-            if (ext === 'woff2') mimeType = 'font/woff2'
-            return `data:${mimeType};base64,${buffer.toString('base64')}`
-          }
+          if (fs.existsSync(fullPath)) return fullPath
         }
       }
       
@@ -877,19 +898,31 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
         const fontFileName = execSync(`powershell -Command "${fontPathScript}"`, { encoding: 'utf-8' }).trim()
         
         if (fontFileName) {
-          if (fs.existsSync(fontFileName)) {
-            const buffer = fs.readFileSync(fontFileName)
-            const ext = fontFileName.split('.').pop().toLowerCase()
-            let mimeType = 'font/truetype'
-            if (ext === 'otf') mimeType = 'font/opentype'
-            if (ext === 'woff') mimeType = 'font/woff'
-            if (ext === 'woff2') mimeType = 'font/woff2'
-            return `data:${mimeType};base64,${buffer.toString('base64')}`
-          }
+          if (path.isAbsolute(fontFileName) && fs.existsSync(fontFileName)) return fontFileName
+          const userFullPath = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts', fontFileName)
+          if (fs.existsSync(userFullPath)) return userFullPath
         }
       }
     } catch (e) {
-      console.error('Failed to get font data URL:', e)
+      console.error('Failed to find font file:', e)
+    }
+    return null
+  }
+  
+  if (process.platform === 'win32') {
+    const fontPath = findFontFile(fontFamily)
+    if (fontPath) {
+      const stat = fs.statSync(fontPath)
+      if (stat.size > 5 * 1024 * 1024) {
+        return pathToFileUrl(fontPath)
+      }
+      const buffer = fs.readFileSync(fontPath)
+      const ext = path.extname(fontPath).toLowerCase()
+      let mimeType = 'font/truetype'
+      if (ext === '.otf') mimeType = 'font/opentype'
+      if (ext === '.woff') mimeType = 'font/woff'
+      if (ext === '.woff2') mimeType = 'font/woff2'
+      return `data:${mimeType};base64,${buffer.toString('base64')}`
     }
   }
   

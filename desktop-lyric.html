@@ -17,7 +17,16 @@
             overflow: hidden;
             font-family: 'Microsoft YaHei', sans-serif;
             color: #fff;
-            text-shadow: 0 0 8px rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.5);
+            -webkit-text-stroke: 0;
+            text-shadow:
+                -1.5px -1.5px 0 #000,
+                1.5px -1.5px 0 #000,
+                -1.5px 1.5px 0 #000,
+                1.5px 1.5px 0 #000,
+                0 -1.5px 0 #000,
+                0 1.5px 0 #000,
+                -1.5px 0 0 #000,
+                1.5px 0 0 #000;
         }
         
         .desktop-lyric-container {
@@ -64,14 +73,23 @@
         
         .lyric-karaoke-char.active {
             color: var(--highlight-color, #66CCFF);
-            text-shadow: 0 0 8px var(--highlight-color, #66CCFF), 0 2px 4px rgba(0, 0, 0, 0.5);
+            text-shadow: 0 0 8px var(--highlight-color, #66CCFF);
         }
         
         .lyric-translation {
             font-size: 16px;
             text-align: center;
             line-height: 1.5;
-            opacity: 0.7;
+            opacity: 1;
+            text-shadow:
+                -1px -1px 0 #000,
+                1px -1px 0 #000,
+                -1px 1px 0 #000,
+                1px 1px 0 #000,
+                0 -1px 0 #000,
+                0 1px 0 #000,
+                -1px 0 0 #000,
+                1px 0 0 #000;
         }
         
         .lyric-translation.empty {
@@ -147,7 +165,10 @@
             font-size: 12px;
             opacity: 0;
             transition: opacity 0.3s ease;
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(255, 255, 255, 0.8);
+            -webkit-text-stroke: 0;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+            font-weight: normal;
         }
         
         .hint-text.visible {
@@ -194,7 +215,7 @@
         
         let lyricSettings = {
             textColor: '#ffffff',
-            shadowColor: 'rgba(0, 0, 0, 0.8)',
+            strokeColor: '#000000',
             fontSize: 28,
             fontFamily: 'Microsoft YaHei',
             karaokeMode: false
@@ -335,32 +356,31 @@
             });
         }
         
+        let customFontLoaded = false;
+
         if (window.electronAPI && window.electronAPI.onLyricSettingsChange) {
-            window.electronAPI.onLyricSettingsChange((settings) => {
+            window.electronAPI.onLyricSettingsChange(async (settings) => {
+                const oldFontFamily = lyricSettings.fontFamily;
                 lyricSettings = settings;
                 isKaraokeMode = settings.karaokeMode || false;
                 karaokeBtn.classList.toggle('active', isKaraokeMode);
-                applySettings();
+                
+                if (settings.fontFamily !== oldFontFamily || !customFontLoaded) {
+                    const fontFamilyStr = await loadFont(settings.fontFamily);
+                    applySettings(fontFamilyStr);
+                    customFontLoaded = true;
+                } else {
+                    applySettings();
+                }
             });
         }
         
-        async function loadSettings() {
-            if (window.electronAPI) {
-                lyricSettings = await window.electronAPI.getLyricSettings();
-                isKaraokeMode = lyricSettings.karaokeMode || false;
-                karaokeBtn.classList.toggle('active', isKaraokeMode);
-                applySettings();
-            }
-        }
-        
-        async function applySettings() {
-            document.body.style.color = lyricSettings.textColor;
-            document.body.style.textShadow = `0 0 8px ${lyricSettings.shadowColor}, 0 2px 4px ${lyricSettings.shadowColor}`;
+        async function loadFont(fontFamily) {
+            if (!window.electronAPI) return null;
             
-            const fontFamily = lyricSettings.fontFamily;
             const customFontName = `CustomLyricFont`;
-            
             const dataUrl = await window.electronAPI.getFontDataUrl(fontFamily);
+            
             if (dataUrl) {
                 let styleSheet = document.getElementById('custom-font-stylesheet');
                 if (!styleSheet) {
@@ -368,22 +388,74 @@
                     styleSheet.id = 'custom-font-stylesheet';
                     document.head.appendChild(styleSheet);
                 }
+                
+                const strokeColor = lyricSettings.strokeColor || '#000000';
+                const s = 1.5;
+                
                 styleSheet.textContent = `
                     @font-face {
                         font-family: '${customFontName}';
                         src: url(${dataUrl});
                         font-weight: 900;
                         font-style: normal;
+                        font-display: swap;
+                    }
+                    .lyric-karaoke-char.active {
+                        text-shadow:
+                            -${s}px -${s}px 0 ${strokeColor},
+                            ${s}px -${s}px 0 ${strokeColor},
+                            -${s}px ${s}px 0 ${strokeColor},
+                            ${s}px ${s}px 0 ${strokeColor},
+                            0 -${s}px 0 ${strokeColor},
+                            0 ${s}px 0 ${strokeColor},
+                            -${s}px 0 0 ${strokeColor},
+                            ${s}px 0 0 ${strokeColor},
+                            0 0 8px var(--highlight-color, ${lyricSettings.textColor});
                     }
                 `;
-                document.body.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
-                lyricMain.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
-                lyricTranslation.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
+                
+                return `'${customFontName}', ${fontFamily}, sans-serif`;
             } else {
                 const fontName = fontFamily.includes(' ') ? `'${fontFamily}'` : fontFamily;
-                document.body.style.fontFamily = `${fontName}, sans-serif`;
-                lyricMain.style.fontFamily = `${fontName}, sans-serif`;
-                lyricTranslation.style.fontFamily = `${fontName}, sans-serif`;
+                return `${fontName}, sans-serif`;
+            }
+        }
+        
+        async function loadSettings() {
+            if (window.electronAPI) {
+                try {
+                    lyricSettings = await window.electronAPI.getLyricSettings();
+                    isKaraokeMode = lyricSettings.karaokeMode || false;
+                    karaokeBtn.classList.toggle('active', isKaraokeMode);
+                    applySettings();
+                } catch (e) {
+                    console.error('Failed to load settings:', e);
+                    applySettings();
+                }
+            }
+        }
+        
+        function applySettings(fontFamilyStr = null) {
+            document.body.style.color = lyricSettings.textColor;
+            const strokeColor = lyricSettings.strokeColor || '#000000';
+            const s = 1.5;
+            const textShadow = `
+                -${s}px -${s}px 0 ${strokeColor},
+                ${s}px -${s}px 0 ${strokeColor},
+                -${s}px ${s}px 0 ${strokeColor},
+                ${s}px ${s}px 0 ${strokeColor},
+                0 -${s}px 0 ${strokeColor},
+                0 ${s}px 0 ${strokeColor},
+                -${s}px 0 0 ${strokeColor},
+                ${s}px 0 0 ${strokeColor}
+            `;
+            document.body.style.textShadow = textShadow;
+            lyricTranslation.style.textShadow = textShadow;
+            
+            if (fontFamilyStr) {
+                document.body.style.fontFamily = fontFamilyStr;
+                lyricMain.style.fontFamily = fontFamilyStr;
+                lyricTranslation.style.fontFamily = fontFamilyStr;
             }
             
             document.body.style.fontWeight = '900';

@@ -81,20 +81,6 @@
             width: 120px;
         }
         
-        .font-size-wrapper {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        
-        .font-size-preview {
-            flex: 1;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            text-align: center;
-        }
-        
         .font-family-options {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -102,13 +88,14 @@
         }
         
         .font-option {
-            padding: 12px;
+            padding: 10px 12px;
             background: rgba(255, 255, 255, 0.05);
             border: 2px solid transparent;
             border-radius: 8px;
             cursor: pointer;
             text-align: center;
             transition: all 0.2s;
+            font-size: 14px;
         }
         
         .font-option:hover {
@@ -117,18 +104,10 @@
         
         .font-option.selected {
             border-color: #66CCFF;
-            background: rgba(102, 204, 255, 0.1);
-        }
-        
-        .font-option span {
-            display: block;
-            font-size: 16px;
-            margin-bottom: 4px;
-        }
-        
-        .font-option label {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
+            background: rgba(102, 204, 255, 0.25);
+            color: #66CCFF;
+            font-weight: 600;
+            box-shadow: 0 0 8px rgba(102, 204, 255, 0.4);
         }
         
         .button-group {
@@ -186,10 +165,10 @@
         </div>
         
         <div class="setting-item">
-            <label class="setting-label">阴影颜色</label>
+            <label class="setting-label">描边颜色</label>
             <div class="color-picker-wrapper">
-                <input type="color" id="shadowColorPicker" class="color-input">
-                <div class="color-preview" id="shadowColorPreview">预览</div>
+                <input type="color" id="strokeColorPicker" class="color-input">
+                <div class="color-preview" id="strokeColorPreview">预览</div>
             </div>
         </div>
         
@@ -197,10 +176,7 @@
         
         <div class="setting-item">
             <label class="setting-label">字体大小</label>
-            <div class="font-size-wrapper">
-                <input type="number" id="fontSizeInput" class="number-input" min="12" max="72" value="28">
-                <div class="font-size-preview" id="fontSizePreview">字体预览</div>
-            </div>
+            <input type="number" id="fontSizeInput" class="number-input" min="12" max="72" value="28">
         </div>
         
         <div class="divider"></div>
@@ -231,10 +207,9 @@
     <script>
         const textColorPicker = document.getElementById('textColorPicker');
         const textColorPreview = document.getElementById('textColorPreview');
-        const shadowColorPicker = document.getElementById('shadowColorPicker');
-        const shadowColorPreview = document.getElementById('shadowColorPreview');
+        const strokeColorPicker = document.getElementById('strokeColorPicker');
+        const strokeColorPreview = document.getElementById('strokeColorPreview');
         const fontSizeInput = document.getElementById('fontSizeInput');
-        const fontSizePreview = document.getElementById('fontSizePreview');
         const fontFamilyOptions = document.getElementById('fontFamilyOptions');
         const fontSearchInput = document.getElementById('fontSearchInput');
         const karaokeModeInput = document.getElementById('karaokeModeInput');
@@ -243,7 +218,7 @@
         
         let currentSettings = {
             textColor: '#ffffff',
-            shadowColor: 'rgba(0, 0, 0, 0.8)',
+            strokeColor: '#000000',
             fontSize: 28,
             fontFamily: 'Microsoft YaHei',
             karaokeMode: false
@@ -283,61 +258,12 @@
                 const fontOption = document.createElement('div');
                 fontOption.className = 'font-option';
                 fontOption.dataset.font = familyName;
-                fontOption.innerHTML = `
-                    <span style="font-family: '${familyName}';">${displayName}</span>
-                    <label>${displayName}</label>
-                    <div style="font-family: '${familyName}'; font-size: 14px; color: #aaa; margin-top: 4px;">あいうえお ABC123</div>
-                    <div style="font-family: '${familyName}'; font-weight: 900; font-size: 12px; color: #888; margin-top: 2px;">(Heavy) あいうえお ABC123</div>
-                `;
-                
-                fontOption.addEventListener('mouseenter', () => {
-                    loadFontPreview(familyName);
-                });
+                fontOption.textContent = displayName;
                 
                 fontFamilyOptions.appendChild(fontOption);
             });
             
             updateUI();
-        }
-        
-        const loadedFonts = new Set();
-        
-        async function loadFontPreview(familyName) {
-            if (loadedFonts.has(familyName)) return;
-            loadedFonts.add(familyName);
-            
-            if (!window.electronAPI) return;
-            
-            try {
-                const dataUrl = await window.electronAPI.getFontDataUrl(familyName);
-                if (dataUrl) {
-                    const customFontName = `CustomFont_${familyName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-                    const styleId = `font-face-${customFontName}`;
-                    let styleSheet = document.getElementById(styleId);
-                    if (!styleSheet) {
-                        styleSheet = document.createElement('style');
-                        styleSheet.id = styleId;
-                        document.head.appendChild(styleSheet);
-                    }
-                    styleSheet.textContent = `
-                        @font-face {
-                            font-family: '${customFontName}';
-                            src: url(${dataUrl});
-                            font-weight: 900;
-                            font-style: normal;
-                        }
-                    `;
-                    
-                    document.querySelectorAll('.font-option[data-font="' + familyName + '"]').forEach(opt => {
-                        const spans = opt.querySelectorAll('span, div');
-                        spans.forEach(el => {
-                            el.style.fontFamily = '\'' + customFontName + '\'';
-                        });
-                    });
-                }
-            } catch (e) {
-                console.error('Failed to load font data URL for', familyName, e);
-            }
         }
         
         function filterFonts(query) {
@@ -357,21 +283,30 @@
         function updateUI() {
             textColorPicker.value = currentSettings.textColor;
             textColorPreview.style.color = currentSettings.textColor;
-            textColorPreview.style.textShadow = `0 0 8px ${currentSettings.shadowColor}`;
+            const strokeColor = currentSettings.strokeColor || '#000000';
+            const s = 1.5;
+            textColorPreview.style.textShadow = `
+                -${s}px -${s}px 0 ${strokeColor},
+                ${s}px -${s}px 0 ${strokeColor},
+                -${s}px ${s}px 0 ${strokeColor},
+                ${s}px ${s}px 0 ${strokeColor},
+                0 -${s}px 0 ${strokeColor},
+                0 ${s}px 0 ${strokeColor},
+                -${s}px 0 0 ${strokeColor},
+                ${s}px 0 0 ${strokeColor}
+            `;
+            textColorPreview.style.webkitTextStroke = '0';
             textColorPreview.textContent = currentSettings.textColor;
             
-            shadowColorPicker.value = rgbToHex(currentSettings.shadowColor) || '#000000';
-            shadowColorPreview.style.background = currentSettings.shadowColor;
-            shadowColorPreview.style.color = getContrastColor(currentSettings.shadowColor);
-            shadowColorPreview.textContent = currentSettings.shadowColor;
+            strokeColorPicker.value = currentSettings.strokeColor || '#000000';
+            strokeColorPreview.style.background = currentSettings.strokeColor || '#000000';
+            strokeColorPreview.style.color = getContrastColor(currentSettings.strokeColor || '#000000');
+            strokeColorPreview.textContent = currentSettings.strokeColor || '#000000';
             
             fontSizeInput.value = currentSettings.fontSize;
-            fontSizePreview.style.fontSize = `${currentSettings.fontSize}px`;
-            fontSizePreview.style.fontFamily = currentSettings.fontFamily;
             
             document.querySelectorAll('.font-option').forEach(opt => {
                 opt.classList.toggle('selected', opt.dataset.font === currentSettings.fontFamily);
-                opt.querySelector('span').style.fontFamily = opt.dataset.font;
             });
             
             karaokeModeInput.checked = currentSettings.karaokeMode || false;
@@ -388,6 +323,7 @@
         }
         
         function getContrastColor(color) {
+            if (!color || typeof color !== 'string') return '#ffffff';
             const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
             if (match) {
                 const r = parseInt(match[1]), g = parseInt(match[2]), b = parseInt(match[3]);
@@ -402,8 +338,8 @@
             updateUI();
         });
         
-        shadowColorPicker.addEventListener('input', (e) => {
-            currentSettings.shadowColor = e.target.value;
+        strokeColorPicker.addEventListener('input', (e) => {
+            currentSettings.strokeColor = e.target.value;
             updateUI();
         });
         
@@ -431,7 +367,7 @@
         resetBtn.addEventListener('click', () => {
             currentSettings = {
                 textColor: '#ffffff',
-                shadowColor: 'rgba(0, 0, 0, 0.8)',
+                strokeColor: '#000000',
                 fontSize: 28,
                 fontFamily: 'Microsoft YaHei',
                 karaokeMode: false
