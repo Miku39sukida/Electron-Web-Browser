@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>桌面歌词</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        
+        body {
+            background: transparent;
+            overflow: hidden;
+            font-family: 'Microsoft YaHei', sans-serif;
+            color: #fff;
+            text-shadow: 0 0 8px rgba(0, 0, 0, 0.8), 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .desktop-lyric-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            transition: opacity 0.3s ease;
+        }
+        
+        .desktop-lyric-container.interactive {
+            background: rgba(0, 0, 0, 0.3);
+        }
+        
+        .lyric-main {
+            font-size: 28px;
+            font-weight: 500;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 10px;
+            opacity: 1;
+        }
+        
+        .lyric-main.empty {
+            opacity: 0;
+        }
+        
+        .lyric-main.karaoke-mode {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 0;
+        }
+        
+        .lyric-karaoke-char {
+            transition: color 0.1s ease;
+        }
+        
+        .lyric-karaoke-char.done {
+            color: var(--highlight-color, #66CCFF);
+        }
+        
+        .lyric-karaoke-char.active {
+            color: var(--highlight-color, #66CCFF);
+            text-shadow: 0 0 8px var(--highlight-color, #66CCFF), 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .lyric-translation {
+            font-size: 16px;
+            text-align: center;
+            line-height: 1.5;
+            opacity: 0.7;
+        }
+        
+        .lyric-translation.empty {
+            opacity: 0;
+        }
+        
+        .control-ui {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        
+        .control-ui.visible {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        .control-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+        
+        .control-btn:hover {
+            background: rgba(255, 255, 255, 0.4);
+            transform: scale(1.1);
+        }
+        
+        .control-btn.close-btn {
+            background: rgba(255, 100, 100, 0.6);
+        }
+        
+        .control-btn.close-btn:hover {
+            background: rgba(255, 60, 60, 0.8);
+        }
+        
+        .control-btn.settings-btn {
+            background: rgba(102, 204, 255, 0.6);
+        }
+        
+        .control-btn.settings-btn:hover {
+            background: rgba(102, 204, 255, 0.8);
+        }
+        
+        .control-btn.karaoke-btn {
+            background: rgba(255, 180, 100, 0.6);
+        }
+        
+        .control-btn.karaoke-btn:hover,
+        .control-btn.karaoke-btn.active {
+            background: rgba(255, 180, 100, 0.9);
+        }
+        
+        .hint-text {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .hint-text.visible {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="desktop-lyric-container" id="lyricContainer">
+        <div class="lyric-main" id="lyricMain"></div>
+        <div class="lyric-translation" id="lyricTranslation"></div>
+        
+        <div class="control-ui" id="controlUI">
+            <button class="control-btn settings-btn" id="settingsBtn" title="设置">⚙</button>
+            <button class="control-btn karaoke-btn" id="karaokeBtn" title="卡拉OK模式">🎤</button>
+            <button class="control-btn" id="fontPlusBtn" title="增大字体">+</button>
+            <button class="control-btn" id="fontMinusBtn" title="减小字体">−</button>
+            <button class="control-btn close-btn" id="closeBtn" title="关闭">×</button>
+        </div>
+        
+        <div class="hint-text" id="hintText">按 Ctrl+L 退出操作模式（全局生效）</div>
+    </div>
+
+    <script>
+        const lyricMain = document.getElementById('lyricMain');
+        const lyricTranslation = document.getElementById('lyricTranslation');
+        const controlUI = document.getElementById('controlUI');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const karaokeBtn = document.getElementById('karaokeBtn');
+        const fontPlusBtn = document.getElementById('fontPlusBtn');
+        const fontMinusBtn = document.getElementById('fontMinusBtn');
+        const closeBtn = document.getElementById('closeBtn');
+        const lyricContainer = document.getElementById('lyricContainer');
+        const hintText = document.getElementById('hintText');
+        
+        let fontSize = 28;
+        let isInteractive = false;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let winStartX = 0;
+        let winStartY = 0;
+        let isKaraokeMode = false;
+        
+        let lyricSettings = {
+            textColor: '#ffffff',
+            shadowColor: 'rgba(0, 0, 0, 0.8)',
+            fontSize: 28,
+            fontFamily: 'Microsoft YaHei',
+            karaokeMode: false
+        };
+        
+        let currentKaraokeSlots = [];
+        let currentPlayTime = 0;
+        let animationFrameId = null;
+        
+        function _buildFlattenCharSlots(karaoke, lineEndTime = null) {
+            if (!Array.isArray(karaoke) || karaoke.length === 0) return [];
+            const tokens = [];
+            for (let i = 0; i < karaoke.length; i += 1) {
+                const curr = karaoke[i];
+                const currTime = curr.time_sec || 0;
+                const currText = curr.text || '';
+                if (!currText) {
+                    if (tokens.length > 0) {
+                        tokens[tokens.length - 1].end = currTime;
+                    }
+                    continue;
+                }
+                let nextTime = null;
+                let j = i + 1;
+                while (j < karaoke.length && Math.abs((karaoke[j].time_sec || 0) - currTime) < 1e-6) {
+                    j += 1;
+                }
+                const hasSameTimeAfter = j > i + 1;
+                let endTime = null;
+                for (let k = j; k < karaoke.length; k += 1) {
+                    const t = karaoke[k].time_sec || 0;
+                    if (Math.abs(t - currTime) >= 1e-6) {
+                        nextTime = t;
+                        break;
+                    }
+                }
+                if (hasSameTimeAfter) {
+                    endTime = currTime;
+                } else if (nextTime !== null) {
+                    endTime = nextTime;
+                }
+                tokens.push({ start: currTime, end: endTime, text: currText });
+            }
+            if (tokens.length === 0) return [];
+            const lastToken = tokens[tokens.length - 1];
+            if (lastToken.end === null) {
+                if (lineEndTime !== null && lineEndTime > lastToken.start) {
+                    lastToken.end = lineEndTime;
+                } else {
+                    lastToken.end = lastToken.start + 0.6;
+                }
+            }
+            const slots = [];
+            for (let i = 0; i < tokens.length; i += 1) {
+                const token = tokens[i];
+                const duration = token.end - token.start;
+                if (duration <= 0) {
+                    const chars = Array.from(token.text);
+                    for (let c = 0; c < chars.length; c += 1) {
+                        slots.push({ start: token.start, end: token.start, text: chars[c] });
+                    }
+                    continue;
+                }
+                const chars = Array.from(token.text);
+                const charCount = chars.length;
+                if (charCount === 0) continue;
+                if (charCount === 1) {
+                    slots.push({ start: token.start, end: token.end, text: chars[0] });
+                } else {
+                    const step = duration / charCount;
+                    for (let c = 0; c < charCount; c += 1) {
+                        const s = token.start + step * c;
+                        const e = c === charCount - 1 ? token.end : token.start + step * (c + 1);
+                        slots.push({ start: s, end: e, text: chars[c] });
+                    }
+                }
+            }
+            return slots;
+        }
+        
+        function startKaraokeAnimation() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            function update() {
+                if (isKaraokeMode && currentKaraokeSlots.length > 0) {
+                    updateKaraokeDisplay();
+                }
+                animationFrameId = requestAnimationFrame(update);
+            }
+            animationFrameId = requestAnimationFrame(update);
+        }
+        
+        function stopKaraokeAnimation() {
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+        }
+        
+        function updateKaraokeDisplay() {
+            const chars = lyricMain.querySelectorAll('.lyric-karaoke-char');
+            chars.forEach((char, idx) => {
+                const slot = currentKaraokeSlots[idx];
+                if (!slot) return;
+                
+                char.classList.remove('done', 'active');
+                
+                if (currentPlayTime >= slot.end) {
+                    char.classList.add('done');
+                } else if (currentPlayTime >= slot.start) {
+                    char.classList.add('active');
+                }
+            });
+        }
+        
+        if (window.electronAPI && window.electronAPI.onLyricUpdate) {
+            window.electronAPI.onLyricUpdate((data) => {
+                currentPlayTime = data.currentTime || 0;
+                updateLyric(data.text, data.translation, data.karaoke || [], data.lineEndTime);
+            });
+        }
+        
+        if (window.electronAPI && window.electronAPI.onLyricInteractiveChange) {
+            window.electronAPI.onLyricInteractiveChange((interactive) => {
+                isInteractive = interactive;
+                if (isInteractive) {
+                    controlUI.classList.add('visible');
+                    lyricContainer.classList.add('interactive');
+                    hintText.classList.add('visible');
+                    document.body.style.cursor = 'move';
+                } else {
+                    controlUI.classList.remove('visible');
+                    lyricContainer.classList.remove('interactive');
+                    hintText.classList.remove('visible');
+                    document.body.style.cursor = 'default';
+                }
+            });
+        }
+        
+        if (window.electronAPI && window.electronAPI.onLyricSettingsChange) {
+            window.electronAPI.onLyricSettingsChange((settings) => {
+                lyricSettings = settings;
+                isKaraokeMode = settings.karaokeMode || false;
+                karaokeBtn.classList.toggle('active', isKaraokeMode);
+                applySettings();
+            });
+        }
+        
+        async function loadSettings() {
+            if (window.electronAPI) {
+                lyricSettings = await window.electronAPI.getLyricSettings();
+                isKaraokeMode = lyricSettings.karaokeMode || false;
+                karaokeBtn.classList.toggle('active', isKaraokeMode);
+                applySettings();
+            }
+        }
+        
+        async function applySettings() {
+            document.body.style.color = lyricSettings.textColor;
+            document.body.style.textShadow = `0 0 8px ${lyricSettings.shadowColor}, 0 2px 4px ${lyricSettings.shadowColor}`;
+            
+            const fontFamily = lyricSettings.fontFamily;
+            const customFontName = `CustomLyricFont`;
+            
+            const dataUrl = await window.electronAPI.getFontDataUrl(fontFamily);
+            if (dataUrl) {
+                let styleSheet = document.getElementById('custom-font-stylesheet');
+                if (!styleSheet) {
+                    styleSheet = document.createElement('style');
+                    styleSheet.id = 'custom-font-stylesheet';
+                    document.head.appendChild(styleSheet);
+                }
+                styleSheet.textContent = `
+                    @font-face {
+                        font-family: '${customFontName}';
+                        src: url(${dataUrl});
+                        font-weight: 900;
+                        font-style: normal;
+                    }
+                `;
+                document.body.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
+                lyricMain.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
+                lyricTranslation.style.fontFamily = `'${customFontName}', ${fontFamily}, sans-serif`;
+            } else {
+                const fontName = fontFamily.includes(' ') ? `'${fontFamily}'` : fontFamily;
+                document.body.style.fontFamily = `${fontName}, sans-serif`;
+                lyricMain.style.fontFamily = `${fontName}, sans-serif`;
+                lyricTranslation.style.fontFamily = `${fontName}, sans-serif`;
+            }
+            
+            document.body.style.fontWeight = '900';
+            lyricMain.style.fontWeight = '900';
+            lyricTranslation.style.fontWeight = '900';
+            
+            fontSize = lyricSettings.fontSize;
+            lyricMain.style.fontSize = `${fontSize}px`;
+            lyricTranslation.style.fontSize = `${Math.floor(fontSize * 0.57)}px`;
+            document.documentElement.style.setProperty('--highlight-color', lyricSettings.textColor);
+        }
+        
+        loadSettings();
+        
+        function updateLyric(text, translation, karaoke = [], lineEndTime = null) {
+            if (text && !text.startsWith('(空行)')) {
+                if (isKaraokeMode && karaoke.length > 0) {
+                    currentKaraokeSlots = _buildFlattenCharSlots(karaoke, lineEndTime);
+                    if (currentKaraokeSlots.length > 0) {
+                        lyricMain.innerHTML = currentKaraokeSlots.map((slot) => 
+                            `<span class="lyric-karaoke-char">${slot.text}</span>`
+                        ).join('');
+                        lyricMain.classList.add('karaoke-mode');
+                        startKaraokeAnimation();
+                        updateKaraokeDisplay();
+                    } else {
+                        lyricMain.textContent = text;
+                        lyricMain.classList.remove('karaoke-mode');
+                        stopKaraokeAnimation();
+                    }
+                } else {
+                    lyricMain.textContent = text;
+                    lyricMain.classList.remove('karaoke-mode');
+                    stopKaraokeAnimation();
+                }
+                lyricMain.classList.remove('empty');
+            } else {
+                lyricMain.textContent = '';
+                lyricMain.classList.remove('karaoke-mode');
+                lyricMain.classList.add('empty');
+                stopKaraokeAnimation();
+            }
+            
+            if (translation && translation.trim()) {
+                lyricTranslation.textContent = translation;
+                lyricTranslation.classList.remove('empty');
+            } else {
+                lyricTranslation.textContent = '';
+                lyricTranslation.classList.add('empty');
+            }
+        }
+        
+        lyricContainer.addEventListener('mousedown', async (e) => {
+            if (!isInteractive || e.target.classList.contains('control-btn')) return;
+            
+            isDragging = true;
+            dragStartX = e.screenX;
+            dragStartY = e.screenY;
+            
+            if (window.electronAPI) {
+                const [wx, wy] = await window.electronAPI.getLyricWindowPosition();
+                winStartX = wx;
+                winStartY = wy;
+            }
+            
+            document.body.style.cursor = 'grabbing';
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.screenX - dragStartX;
+            const dy = e.screenY - dragStartY;
+            const newX = winStartX + dx;
+            const newY = winStartY + dy;
+            if (window.electronAPI) {
+                window.electronAPI.moveLyricWindow(newX, newY);
+            }
+        });
+        
+        document.addEventListener('mouseup', () => {
+            if (isDragging) {
+                isDragging = false;
+                document.body.style.cursor = isInteractive ? 'move' : 'default';
+            }
+        });
+        
+        settingsBtn.addEventListener('click', () => {
+            if (window.electronAPI) {
+                window.electronAPI.openLyricSettings();
+            }
+        });
+        
+        karaokeBtn.addEventListener('click', () => {
+            isKaraokeMode = !isKaraokeMode;
+            karaokeBtn.classList.toggle('active', isKaraokeMode);
+            if (window.electronAPI) {
+                window.electronAPI.saveLyricSettings({ karaokeMode: isKaraokeMode });
+            }
+        });
+        
+        fontPlusBtn.addEventListener('click', () => {
+            fontSize = Math.min(fontSize + 4, 60);
+            lyricMain.style.fontSize = `${fontSize}px`;
+            if (window.electronAPI) {
+                window.electronAPI.saveLyricSettings({ fontSize });
+            }
+        });
+        
+        fontMinusBtn.addEventListener('click', () => {
+            fontSize = Math.max(fontSize - 4, 16);
+            lyricMain.style.fontSize = `${fontSize}px`;
+            if (window.electronAPI) {
+                window.electronAPI.saveLyricSettings({ fontSize });
+            }
+        });
+        
+        closeBtn.addEventListener('click', () => {
+            if (window.electronAPI) {
+                window.electronAPI.closeDesktopLyric();
+            }
+        });
+        
+        document.body.addEventListener('mouseleave', () => {
+            if (isInteractive) {
+                if (window.electronAPI) {
+                    window.electronAPI.toggleLyricInteractive(false);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

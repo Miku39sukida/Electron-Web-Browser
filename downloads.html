@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>下载管理</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      background: linear-gradient(135deg, #ff6b9d 0%, #c44569 50%, #f8b500 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(255, 215, 0, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 40% 40%, rgba(255, 105, 180, 0.1) 0%, transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-radius: 24px;
+      box-shadow: 
+        0 25px 60px rgba(0, 0, 0, 0.3),
+        0 0 0 1px rgba(255, 255, 255, 0.5),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+      padding: 40px;
+      max-width: 800px;
+      width: 100%;
+      position: relative;
+      z-index: 1;
+      border: 2px solid rgba(255, 182, 193, 0.5);
+    }
+
+    .container::after {
+      content: '';
+      position: absolute;
+      top: -2px;
+      left: -2px;
+      right: -2px;
+      bottom: -2px;
+      background: linear-gradient(45deg, #ff6b9d, #f8b500, #ff6b9d);
+      border-radius: 26px;
+      z-index: -1;
+      opacity: 0.5;
+      animation: rainbow 3s ease infinite;
+    }
+
+    @keyframes rainbow {
+      0%, 100% { opacity: 0.5; }
+      50% { opacity: 0.8; }
+    }
+
+    h1 {
+      text-align: center;
+      color: #c44569;
+      margin-bottom: 30px;
+      font-size: 32px;
+      font-weight: bold;
+      text-shadow: 2px 2px 4px rgba(255, 107, 157, 0.3);
+      letter-spacing: 2px;
+    }
+
+    .download-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: 600px;
+      overflow-y: auto;
+      padding-right: 10px;
+    }
+
+    .download-list::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .download-list::-webkit-scrollbar-track {
+      background: #ffe4e1;
+      border-radius: 4px;
+    }
+
+    .download-list::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #ff6b9d, #f8b500);
+      border-radius: 4px;
+    }
+
+    .download-item {
+      background: linear-gradient(145deg, #fff0f5, #ffe4e1);
+      border-radius: 12px;
+      padding: 16px;
+      border: 2px solid #ffb6c1;
+      transition: all 0.3s;
+    }
+
+    .download-item:hover {
+      border-color: #ff6b9d;
+      box-shadow: 0 5px 20px rgba(255, 107, 157, 0.2);
+    }
+
+    .download-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .download-filename {
+      flex: 1;
+      font-weight: bold;
+      color: #c44569;
+      font-size: 14px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding-right: 10px;
+    }
+
+    .download-status {
+      font-size: 12px;
+      font-weight: bold;
+      padding: 4px 12px;
+      border-radius: 20px;
+      margin-left: 10px;
+    }
+
+    .download-status.downloading {
+      background: linear-gradient(135deg, #ffd700, #ffb700);
+      color: #8b4513;
+    }
+
+    .download-status.completed {
+      background: linear-gradient(135deg, #98fb98, #90ee90);
+      color: #006400;
+    }
+
+    .download-status.cancelled {
+      background: linear-gradient(135deg, #ffb6c1, #ffc0cb);
+      color: #8b0000;
+    }
+
+    .download-progress-bar {
+      height: 8px;
+      background: #ffe4e1;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+
+    .download-progress {
+      height: 100%;
+      background: linear-gradient(90deg, #ff6b9d, #f8b500);
+      border-radius: 4px;
+      transition: width 0.3s;
+    }
+
+    .download-info {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #ff91a4;
+    }
+
+    .download-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .download-btn {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .download-btn.open {
+      background: linear-gradient(135deg, #ff6b9d, #c44569);
+      color: white;
+    }
+
+    .download-btn.delete {
+      background: #ffe4e1;
+      color: #c44569;
+      border: 1px solid #ffb6c1;
+    }
+
+    .download-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .download-empty {
+      text-align: center;
+      padding: 60px;
+      color: #ff91a4;
+      font-size: 16px;
+    }
+
+    .modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transition: all 0.3s;
+    }
+
+    .modal-overlay.active {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .modal {
+      background: white;
+      border-radius: 20px;
+      padding: 30px;
+      width: 90%;
+      max-width: 400px;
+      transform: scale(0.8);
+      transition: transform 0.3s;
+      border: 2px solid #ffb6c1;
+      box-shadow: 0 20px 50px rgba(255, 107, 157, 0.3);
+    }
+
+    .modal-overlay.active .modal {
+      transform: scale(1);
+    }
+
+    .modal h3 {
+      color: #c44569;
+      margin-bottom: 20px;
+      font-size: 18px;
+      text-align: center;
+    }
+
+    .modal label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      cursor: pointer;
+      color: #666;
+      font-size: 14px;
+    }
+
+    .modal input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: #ff6b9d;
+    }
+
+    .modal-buttons {
+      display: flex;
+      gap: 15px;
+    }
+
+    .modal-btn {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .modal-btn.cancel {
+      background: #ffe4e1;
+      color: #c44569;
+      border: 1px solid #ffb6c1;
+    }
+
+    .modal-btn.confirm {
+      background: linear-gradient(135deg, #ff6b9d, #c44569);
+      color: white;
+    }
+
+    .modal-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+    }
+
+    .settings-section {
+      margin-top: 30px;
+      padding-top: 25px;
+      border-top: 2px dashed #ffb6c1;
+    }
+
+    .settings-section h2 {
+      color: #c44569;
+      margin-bottom: 20px;
+      font-size: 22px;
+      padding-left: 15px;
+      border-left: 5px solid #ff6b9d;
+      font-weight: bold;
+    }
+
+    .settings-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-item {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .setting-label {
+      font-size: 14px;
+      font-weight: bold;
+      color: #c44569;
+    }
+
+    .setting-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .setting-input {
+      flex: 1;
+      padding: 12px 16px;
+      border: 2px solid #ffb6c1;
+      border-radius: 12px;
+      font-size: 13px;
+      background: #fff0f5;
+      color: #c44569;
+      cursor: default;
+    }
+
+    .setting-btn {
+      padding: 12px 20px;
+      background: linear-gradient(135deg, #ff6b9d, #c44569);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .setting-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 15px rgba(255, 107, 157, 0.4);
+    }
+
+    .setting-switch {
+      position: relative;
+      display: inline-block;
+      width: 60px;
+      height: 34px;
+    }
+
+    .setting-switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: #ffe4e1;
+      transition: 0.4s;
+      border-radius: 34px;
+      border: 2px solid #ffb6c1;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: '';
+      height: 26px;
+      width: 26px;
+      left: 3px;
+      bottom: 3px;
+      background: white;
+      transition: 0.4s;
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+    }
+
+    .setting-switch input:checked + .slider {
+      background: linear-gradient(135deg, #ff6b9d, #c44569);
+      border-color: #ff6b9d;
+    }
+
+    .setting-switch input:checked + .slider:before {
+      transform: translateX(26px);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>📥 下载管理 📥</h1>
+    
+    <div class="download-list" id="downloadList">
+      <div class="download-empty">暂无下载记录</div>
+    </div>
+
+    <div class="settings-section">
+      <h2>⚙️ 下载设置 ⚙️</h2>
+      <div class="settings-grid">
+        <div class="setting-item">
+          <label class="setting-label">默认下载路径</label>
+          <div class="setting-row">
+            <input type="text" id="downloadPathInput" readonly class="setting-input" />
+            <button class="setting-btn" onclick="selectDownloadPath()">浏览...</button>
+          </div>
+        </div>
+        <div class="setting-item">
+          <label class="setting-label">下载前询问路径</label>
+          <label class="setting-switch">
+            <input type="checkbox" id="askForPathCheckbox" onchange="toggleAskForPath()" />
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="deleteModal">
+    <div class="modal">
+      <h3>确认删除</h3>
+      <label>
+        <input type="checkbox" id="deleteFileCheckbox" />
+        同时删除本地文件
+      </label>
+      <div class="modal-buttons">
+        <button class="modal-btn cancel" onclick="closeDeleteModal()">取消</button>
+        <button class="modal-btn confirm" onclick="confirmDelete()">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let downloads = []
+    let deleteTargetId = null
+
+    async function initDownloads() {
+      downloads = await window.electronAPI.getDownloads()
+      renderDownloads()
+    }
+
+    window.electronAPI.onDownloadUpdate((info) => {
+      const index = downloads.findIndex(d => d.id === info.id)
+      if (index !== -1) {
+        downloads[index] = info
+      } else {
+        downloads.unshift(info)
+      }
+      renderDownloads()
+    })
+
+    function renderDownloads() {
+      const list = document.getElementById('downloadList')
+      
+      if (downloads.length === 0) {
+        list.innerHTML = '<div class="download-empty">暂无下载记录</div>'
+        return
+      }
+
+      list.innerHTML = downloads.map(d => {
+        const size = d.totalBytes > 0 
+          ? formatSize(d.receivedBytes) + ' / ' + formatSize(d.totalBytes)
+          : formatSize(d.receivedBytes)
+        const escapedPath = d.savePath ? d.savePath.replace(/\\/g, '\\\\').replace(/'/g, "\\'") : ''
+        
+        return `
+          <div class="download-item">
+            <div class="download-header">
+              <span class="download-filename">${d.filename}</span>
+              <span class="download-status ${d.state}">${getStatusText(d.state)}</span>
+            </div>
+            <div class="download-progress-bar">
+              <div class="download-progress" style="width: ${d.progress}%"></div>
+            </div>
+            <div class="download-info">
+              <span>${size}</span>
+              <div class="download-actions">
+                ${d.state === 'completed' ? `<button class="download-btn open" onclick="openFileLocation('${escapedPath}')">打开位置</button>` : ''}
+                ${d.state === 'completed' ? `<button class="download-btn open" onclick="openFile('${escapedPath}')">打开文件</button>` : ''}
+                <button class="download-btn delete" onclick="showDeleteModal(${d.id})">删除</button>
+              </div>
+            </div>
+          </div>
+        `
+      }).join('')
+    }
+
+    function formatSize(bytes) {
+      if (bytes === 0) return '0 B'
+      const k = 1024
+      const sizes = ['B', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+    }
+
+    function getStatusText(state) {
+      switch (state) {
+        case 'pending': return '等待中'
+        case 'downloading': return '下载中'
+        case 'completed': return '已完成'
+        case 'cancelled': return '已取消'
+        default: return state
+      }
+    }
+
+    async function initSettings() {
+      const settings = await window.electronAPI.getDownloadSettings()
+      document.getElementById('downloadPathInput').value = settings.defaultPath
+      document.getElementById('askForPathCheckbox').checked = settings.askForPath
+    }
+
+    async function selectDownloadPath() {
+      const path = await window.electronAPI.selectDownloadPath()
+      if (path) {
+        document.getElementById('downloadPathInput').value = path
+      }
+    }
+
+    async function toggleAskForPath() {
+      const askForPath = document.getElementById('askForPathCheckbox').checked
+      await window.electronAPI.setDownloadSettings({ askForPath })
+    }
+
+    async function openFileLocation(filePath) {
+      await window.electronAPI.openFileLocation(filePath)
+    }
+
+    async function openFile(filePath) {
+      await window.electronAPI.openFile(filePath)
+    }
+
+    function showDeleteModal(id) {
+      deleteTargetId = id
+      document.getElementById('deleteModal').classList.add('active')
+      document.getElementById('deleteFileCheckbox').checked = false
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').classList.remove('active')
+      deleteTargetId = null
+    }
+
+    async function confirmDelete() {
+      if (deleteTargetId === null) return
+      
+      const deleteFile = document.getElementById('deleteFileCheckbox').checked
+      await window.electronAPI.deleteDownload({ id: deleteTargetId, deleteFile })
+      
+      downloads = downloads.filter(d => d.id !== deleteTargetId)
+      renderDownloads()
+      closeDeleteModal()
+    }
+
+    initDownloads()
+    initSettings()
+  </script>
+</body>
+</html>

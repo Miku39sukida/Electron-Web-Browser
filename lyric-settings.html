@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>桌面歌词设置</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', sans-serif;
+            background: #2d2d2d;
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .settings-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        
+        .setting-item {
+            margin-bottom: 20px;
+        }
+        
+        .setting-label {
+            display: block;
+            font-size: 14px;
+            margin-bottom: 8px;
+            color: #ccc;
+        }
+        
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .color-input {
+            width: 50px;
+            height: 40px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            background: transparent;
+        }
+        
+        .color-preview {
+            flex: 1;
+            height: 40px;
+            border-radius: 6px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .text-input, .number-input, .select-input {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #fff;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        
+        .text-input:focus, .number-input:focus, .select-input:focus {
+            border-color: #66CCFF;
+        }
+        
+        .number-input {
+            width: 120px;
+        }
+        
+        .font-size-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .font-size-preview {
+            flex: 1;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .font-family-options {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+        
+        .font-option {
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: center;
+            transition: all 0.2s;
+        }
+        
+        .font-option:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .font-option.selected {
+            border-color: #66CCFF;
+            background: rgba(102, 204, 255, 0.1);
+        }
+        
+        .font-option span {
+            display: block;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+        
+        .font-option label {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 12px;
+            margin-top: 30px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #66CCFF;
+            color: #000;
+        }
+        
+        .btn-primary:hover {
+            background: #80d4ff;
+        }
+        
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="settings-container">
+        <h2 style="text-align: center; margin-bottom: 20px; color: #66CCFF;">桌面歌词设置</h2>
+        
+        <div class="setting-item">
+            <label class="setting-label">文字颜色</label>
+            <div class="color-picker-wrapper">
+                <input type="color" id="textColorPicker" class="color-input">
+                <div class="color-preview" id="textColorPreview">预览</div>
+            </div>
+        </div>
+        
+        <div class="setting-item">
+            <label class="setting-label">阴影颜色</label>
+            <div class="color-picker-wrapper">
+                <input type="color" id="shadowColorPicker" class="color-input">
+                <div class="color-preview" id="shadowColorPreview">预览</div>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="setting-item">
+            <label class="setting-label">字体大小</label>
+            <div class="font-size-wrapper">
+                <input type="number" id="fontSizeInput" class="number-input" min="12" max="72" value="28">
+                <div class="font-size-preview" id="fontSizePreview">字体预览</div>
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="setting-item">
+            <label class="setting-label">字体</label>
+            <input type="text" id="fontSearchInput" class="text-input" placeholder="搜索字体..." style="margin-bottom: 8px;">
+            <div class="font-family-options" id="fontFamilyOptions" style="max-height: 200px; overflow-y: auto;">
+            </div>
+        </div>
+        
+        <div class="divider"></div>
+        
+        <div class="setting-item">
+            <label class="setting-label">卡拉OK模式</label>
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <input type="checkbox" id="karaokeModeInput" style="width: 20px; height: 20px; cursor: pointer;">
+                <span style="color: #ccc;">启用逐字高亮效果</span>
+            </div>
+        </div>
+        
+        <div class="button-group">
+            <button class="btn btn-secondary" id="resetBtn">重置</button>
+            <button class="btn btn-primary" id="saveBtn">保存</button>
+        </div>
+    </div>
+
+    <script>
+        const textColorPicker = document.getElementById('textColorPicker');
+        const textColorPreview = document.getElementById('textColorPreview');
+        const shadowColorPicker = document.getElementById('shadowColorPicker');
+        const shadowColorPreview = document.getElementById('shadowColorPreview');
+        const fontSizeInput = document.getElementById('fontSizeInput');
+        const fontSizePreview = document.getElementById('fontSizePreview');
+        const fontFamilyOptions = document.getElementById('fontFamilyOptions');
+        const fontSearchInput = document.getElementById('fontSearchInput');
+        const karaokeModeInput = document.getElementById('karaokeModeInput');
+        const resetBtn = document.getElementById('resetBtn');
+        const saveBtn = document.getElementById('saveBtn');
+        
+        let currentSettings = {
+            textColor: '#ffffff',
+            shadowColor: 'rgba(0, 0, 0, 0.8)',
+            fontSize: 28,
+            fontFamily: 'Microsoft YaHei',
+            karaokeMode: false
+        };
+        
+        let allFonts = [];
+        
+        async function loadSettings() {
+            if (window.electronAPI) {
+                currentSettings = await window.electronAPI.getLyricSettings();
+                await loadSystemFonts();
+                updateUI();
+            }
+        }
+        
+        async function loadSystemFonts() {
+            if (window.electronAPI) {
+                try {
+                    allFonts = await window.electronAPI.getSystemFonts();
+                } catch (e) {
+                    console.error('Failed to load system fonts:', e);
+                }
+            }
+            if (allFonts.length === 0) {
+                allFonts = ['Microsoft YaHei', 'SimSun', 'SimHei', 'KaiTi', 'Arial', 'Times New Roman'];
+            }
+            renderFontOptions(allFonts);
+        }
+        
+        function renderFontOptions(fonts) {
+            fontFamilyOptions.innerHTML = '';
+            
+            fonts.forEach(font => {
+                const familyName = font.familyName || font;
+                const displayName = font.displayName || familyName;
+                
+                const fontOption = document.createElement('div');
+                fontOption.className = 'font-option';
+                fontOption.dataset.font = familyName;
+                fontOption.innerHTML = `
+                    <span style="font-family: '${familyName}';">${displayName}</span>
+                    <label>${displayName}</label>
+                    <div style="font-family: '${familyName}'; font-size: 14px; color: #aaa; margin-top: 4px;">あいうえお ABC123</div>
+                    <div style="font-family: '${familyName}'; font-weight: 900; font-size: 12px; color: #888; margin-top: 2px;">(Heavy) あいうえお ABC123</div>
+                `;
+                
+                fontOption.addEventListener('mouseenter', () => {
+                    loadFontPreview(familyName);
+                });
+                
+                fontFamilyOptions.appendChild(fontOption);
+            });
+            
+            updateUI();
+        }
+        
+        const loadedFonts = new Set();
+        
+        async function loadFontPreview(familyName) {
+            if (loadedFonts.has(familyName)) return;
+            loadedFonts.add(familyName);
+            
+            if (!window.electronAPI) return;
+            
+            try {
+                const dataUrl = await window.electronAPI.getFontDataUrl(familyName);
+                if (dataUrl) {
+                    const customFontName = `CustomFont_${familyName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                    const styleId = `font-face-${customFontName}`;
+                    let styleSheet = document.getElementById(styleId);
+                    if (!styleSheet) {
+                        styleSheet = document.createElement('style');
+                        styleSheet.id = styleId;
+                        document.head.appendChild(styleSheet);
+                    }
+                    styleSheet.textContent = `
+                        @font-face {
+                            font-family: '${customFontName}';
+                            src: url(${dataUrl});
+                            font-weight: 900;
+                            font-style: normal;
+                        }
+                    `;
+                    
+                    document.querySelectorAll('.font-option[data-font="' + familyName + '"]').forEach(opt => {
+                        const spans = opt.querySelectorAll('span, div');
+                        spans.forEach(el => {
+                            el.style.fontFamily = '\'' + customFontName + '\'';
+                        });
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load font data URL for', familyName, e);
+            }
+        }
+        
+        function filterFonts(query) {
+            const q = query.toLowerCase().trim();
+            if (!q) {
+                renderFontOptions(allFonts);
+                return;
+            }
+            const filtered = allFonts.filter(f => {
+                const familyName = f.familyName || f;
+                const displayName = f.displayName || familyName;
+                return familyName.toLowerCase().includes(q) || displayName.toLowerCase().includes(q);
+            });
+            renderFontOptions(filtered);
+        }
+        
+        function updateUI() {
+            textColorPicker.value = currentSettings.textColor;
+            textColorPreview.style.color = currentSettings.textColor;
+            textColorPreview.style.textShadow = `0 0 8px ${currentSettings.shadowColor}`;
+            textColorPreview.textContent = currentSettings.textColor;
+            
+            shadowColorPicker.value = rgbToHex(currentSettings.shadowColor) || '#000000';
+            shadowColorPreview.style.background = currentSettings.shadowColor;
+            shadowColorPreview.style.color = getContrastColor(currentSettings.shadowColor);
+            shadowColorPreview.textContent = currentSettings.shadowColor;
+            
+            fontSizeInput.value = currentSettings.fontSize;
+            fontSizePreview.style.fontSize = `${currentSettings.fontSize}px`;
+            fontSizePreview.style.fontFamily = currentSettings.fontFamily;
+            
+            document.querySelectorAll('.font-option').forEach(opt => {
+                opt.classList.toggle('selected', opt.dataset.font === currentSettings.fontFamily);
+                opt.querySelector('span').style.fontFamily = opt.dataset.font;
+            });
+            
+            karaokeModeInput.checked = currentSettings.karaokeMode || false;
+        }
+        
+        function rgbToHex(rgb) {
+            const match = rgb.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (match) {
+                return '#' + [match[1], match[2], match[3]].map(c => 
+                    parseInt(c).toString(16).padStart(2, '0')
+                ).join('');
+            }
+            return rgb;
+        }
+        
+        function getContrastColor(color) {
+            const match = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+            if (match) {
+                const r = parseInt(match[1]), g = parseInt(match[2]), b = parseInt(match[3]);
+                const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+                return brightness > 128 ? '#000000' : '#ffffff';
+            }
+            return '#ffffff';
+        }
+        
+        textColorPicker.addEventListener('input', (e) => {
+            currentSettings.textColor = e.target.value;
+            updateUI();
+        });
+        
+        shadowColorPicker.addEventListener('input', (e) => {
+            currentSettings.shadowColor = e.target.value;
+            updateUI();
+        });
+        
+        fontSizeInput.addEventListener('input', (e) => {
+            currentSettings.fontSize = parseInt(e.target.value) || 28;
+            updateUI();
+        });
+        
+        fontFamilyOptions.addEventListener('click', (e) => {
+            const option = e.target.closest('.font-option');
+            if (option) {
+                currentSettings.fontFamily = option.dataset.font;
+                updateUI();
+            }
+        });
+        
+        fontSearchInput.addEventListener('input', (e) => {
+            filterFonts(e.target.value);
+        });
+        
+        karaokeModeInput.addEventListener('change', (e) => {
+            currentSettings.karaokeMode = e.target.checked;
+        });
+        
+        resetBtn.addEventListener('click', () => {
+            currentSettings = {
+                textColor: '#ffffff',
+                shadowColor: 'rgba(0, 0, 0, 0.8)',
+                fontSize: 28,
+                fontFamily: 'Microsoft YaHei',
+                karaokeMode: false
+            };
+            updateUI();
+        });
+        
+        saveBtn.addEventListener('click', async () => {
+            if (window.electronAPI) {
+                await window.electronAPI.saveLyricSettings(currentSettings);
+                window.close();
+            }
+        });
+        
+        loadSettings();
+    </script>
+</body>
+</html>
