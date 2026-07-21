@@ -50,6 +50,7 @@
             line-height: 1.6;
             margin-bottom: 10px;
             opacity: 1;
+            white-space: pre-wrap;
         }
         
         .lyric-main.empty {
@@ -65,6 +66,7 @@
         
         .lyric-karaoke-char {
             transition: color 0.1s ease;
+            white-space: pre;
         }
         
         .lyric-karaoke-char.done {
@@ -224,6 +226,19 @@
         let currentKaraokeSlots = [];
         let currentPlayTime = 0;
         let animationFrameId = null;
+        let lastServerTime = 0;
+        let lastServerTimestamp = 0;
+        
+        function getLocalPlayTime() {
+            if (lastServerTimestamp === 0) return currentPlayTime;
+            const elapsed = (performance.now() - lastServerTimestamp) / 1000;
+            return lastServerTime + elapsed;
+        }
+        
+        function _isPureEnglishText(text) {
+            if (!text) return true;
+            return /^[A-Za-z0-9\s'\-,.?!:;()"]+$/.test(text);
+        }
         
         function _buildFlattenCharSlots(karaoke, lineEndTime = null) {
             if (!Array.isArray(karaoke) || karaoke.length === 0) return [];
@@ -282,7 +297,9 @@
                 const chars = Array.from(token.text);
                 const charCount = chars.length;
                 if (charCount === 0) continue;
-                if (charCount === 1) {
+                if (_isPureEnglishText(token.text)) {
+                    slots.push({ start: token.start, end: token.end, text: token.text });
+                } else if (charCount === 1) {
                     slots.push({ start: token.start, end: token.end, text: chars[0] });
                 } else {
                     const step = duration / charCount;
@@ -317,6 +334,8 @@
         }
         
         function updateKaraokeDisplay() {
+            const playTime = getLocalPlayTime();
+            currentPlayTime = playTime;
             const chars = lyricMain.querySelectorAll('.lyric-karaoke-char');
             chars.forEach((char, idx) => {
                 const slot = currentKaraokeSlots[idx];
@@ -324,9 +343,9 @@
                 
                 char.classList.remove('done', 'active');
                 
-                if (currentPlayTime >= slot.end) {
+                if (playTime >= slot.end) {
                     char.classList.add('done');
-                } else if (currentPlayTime >= slot.start) {
+                } else if (playTime >= slot.start) {
                     char.classList.add('active');
                 }
             });
@@ -334,7 +353,9 @@
         
         if (window.electronAPI && window.electronAPI.onLyricUpdate) {
             window.electronAPI.onLyricUpdate((data) => {
-                currentPlayTime = data.currentTime || 0;
+                lastServerTime = data.currentTime || 0;
+                lastServerTimestamp = performance.now();
+                currentPlayTime = lastServerTime;
                 updateLyric(data.text, data.translation, data.karaoke || [], data.lineEndTime);
             });
         }
