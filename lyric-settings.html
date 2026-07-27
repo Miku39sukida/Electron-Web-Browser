@@ -182,9 +182,18 @@
         <div class="divider"></div>
         
         <div class="setting-item">
-            <label class="setting-label">字体</label>
+            <label class="setting-label">主字体</label>
             <input type="text" id="fontSearchInput" class="text-input" placeholder="搜索字体..." style="margin-bottom: 8px;">
             <div class="font-family-options" id="fontFamilyOptions" style="max-height: 200px; overflow-y: auto;">
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="setting-item">
+            <label class="setting-label">回退字体</label>
+            <input type="text" id="fontFallbackSearchInput" class="text-input" placeholder="搜索字体..." style="margin-bottom: 8px;">
+            <div class="font-family-options" id="fontFallbackOptions" style="max-height: 200px; overflow-y: auto;">
             </div>
         </div>
         
@@ -212,15 +221,18 @@
         const fontSizeInput = document.getElementById('fontSizeInput');
         const fontFamilyOptions = document.getElementById('fontFamilyOptions');
         const fontSearchInput = document.getElementById('fontSearchInput');
+        const fontFallbackOptions = document.getElementById('fontFallbackOptions');
+        const fontFallbackSearchInput = document.getElementById('fontFallbackSearchInput');
         const karaokeModeInput = document.getElementById('karaokeModeInput');
         const resetBtn = document.getElementById('resetBtn');
         const saveBtn = document.getElementById('saveBtn');
-        
+
         let currentSettings = {
             textColor: '#ffffff',
             strokeColor: '#000000',
             fontSize: 28,
             fontFamily: 'Microsoft YaHei',
+            fontFallback: 'Microsoft YaHei',
             karaokeMode: false
         };
         
@@ -245,31 +257,32 @@
             if (allFonts.length === 0) {
                 allFonts = ['Microsoft YaHei', 'SimSun', 'SimHei', 'KaiTi', 'Arial', 'Times New Roman'];
             }
-            renderFontOptions(allFonts);
+            renderFontOptions(allFonts, fontFamilyOptions);
+            renderFontOptions(allFonts, fontFallbackOptions);
         }
-        
-        function renderFontOptions(fonts) {
-            fontFamilyOptions.innerHTML = '';
-            
+
+        function renderFontOptions(fonts, container) {
+            container.innerHTML = '';
+
             fonts.forEach(font => {
                 const familyName = font.familyName || font;
                 const displayName = font.displayName || familyName;
-                
+
                 const fontOption = document.createElement('div');
                 fontOption.className = 'font-option';
                 fontOption.dataset.font = familyName;
                 fontOption.textContent = displayName;
-                
-                fontFamilyOptions.appendChild(fontOption);
+
+                container.appendChild(fontOption);
             });
-            
+
             updateUI();
         }
-        
-        function filterFonts(query) {
+
+        function filterFonts(query, container) {
             const q = query.toLowerCase().trim();
             if (!q) {
-                renderFontOptions(allFonts);
+                renderFontOptions(allFonts, container);
                 return;
             }
             const filtered = allFonts.filter(f => {
@@ -277,7 +290,7 @@
                 const displayName = f.displayName || familyName;
                 return familyName.toLowerCase().includes(q) || displayName.toLowerCase().includes(q);
             });
-            renderFontOptions(filtered);
+            renderFontOptions(filtered, container);
         }
         
         function updateUI() {
@@ -305,8 +318,11 @@
             
             fontSizeInput.value = currentSettings.fontSize;
             
-            document.querySelectorAll('.font-option').forEach(opt => {
+            fontFamilyOptions.querySelectorAll('.font-option').forEach(opt => {
                 opt.classList.toggle('selected', opt.dataset.font === currentSettings.fontFamily);
+            });
+            fontFallbackOptions.querySelectorAll('.font-option').forEach(opt => {
+                opt.classList.toggle('selected', opt.dataset.font === (currentSettings.fontFallback || currentSettings.fontFamily));
             });
             
             karaokeModeInput.checked = currentSettings.karaokeMode || false;
@@ -355,9 +371,21 @@
                 updateUI();
             }
         });
-        
+
+        fontFallbackOptions.addEventListener('click', (e) => {
+            const option = e.target.closest('.font-option');
+            if (option) {
+                currentSettings.fontFallback = option.dataset.font;
+                updateUI();
+            }
+        });
+
         fontSearchInput.addEventListener('input', (e) => {
-            filterFonts(e.target.value);
+            filterFonts(e.target.value, fontFamilyOptions);
+        });
+
+        fontFallbackSearchInput.addEventListener('input', (e) => {
+            filterFonts(e.target.value, fontFallbackOptions);
         });
         
         karaokeModeInput.addEventListener('change', (e) => {
@@ -370,6 +398,7 @@
                 strokeColor: '#000000',
                 fontSize: 28,
                 fontFamily: 'Microsoft YaHei',
+                fontFallback: 'Microsoft YaHei',
                 karaokeMode: false
             };
             updateUI();

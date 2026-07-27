@@ -14,6 +14,7 @@ let downloadSettings = {
     strokeColor: '#000000',
     fontSize: 28,
     fontFamily: 'Microsoft YaHei',
+    fontFallback: 'Microsoft YaHei',
     karaokeMode: false
   }
 }
@@ -267,6 +268,9 @@ function setupWindowFeatures(win) {
       } else {
         webContents.openDevTools()
       }
+    } else if (input.key === 'F5' && (input.control || input.meta)) {
+      event.preventDefault()
+      webContents.reloadIgnoringCache()
     } else if (input.key === 'F5' && !input.control && !input.meta) {
       event.preventDefault()
       webContents.reload()
@@ -298,6 +302,12 @@ function setupWindowFeatures(win) {
       label: '重新加载',
       click: () => webContents.reload(),
       accelerator: 'Ctrl+R'
+    }))
+
+    menu.append(new MenuItem({
+      label: '强制重新加载',
+      click: () => webContents.reloadIgnoringCache(),
+      accelerator: 'Ctrl+F5'
     }))
 
     menu.append(new MenuItem({ type: 'separator' }))
@@ -829,103 +839,145 @@ ipcMain.handle('save-lyric-settings', (event, settings) => {
 
 ipcMain.handle('get-system-fonts', async () => {
   const { execSync } = require('child_process')
+  const fs = require('fs')
+  const path = require('path')
   const fontInfoList = []
   const seenNames = new Set()
-  
+
   if (process.platform === 'win32') {
     try {
-      const psScript = `Add-Type -AssemblyName System.Drawing; $ifc = New-Object System.Drawing.Text.InstalledFontCollection; $ifc.Families | ForEach-Object { $_.Name + '|' + $_.GetName(1033) }`
-      const output = execSync(`powershell -Command "${psScript}"`, { encoding: 'utf-8' })
-      const lines = output.split('\n')
-      lines.forEach(line => {
-        const parts = line.trim().split('|')
-        if (parts.length >= 2) {
-          const familyName = parts[0].trim()
-          const displayName = parts[1].trim()
-          if (familyName.length > 0 && !seenNames.has(familyName)) {
-            seenNames.add(familyName)
-            fontInfoList.push({
-              familyName: familyName,
-              displayName: displayName || familyName
-            })
+      const fontDir = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')
+      const regKeys = [
+        'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
+        'HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+      ]
+
+      for (const regKey of regKeys) {
+        try {
+          const buffer = execSync(`chcp 65001 >nul && reg query "${regKey}"`)
+          const output = buffer.toString('utf8')
+          const lines = output.split('\n')
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed || trimmed.startsWith('HKEY_')) continue
+            const match = trimmed.match(/^(.+?)\s+REG_\w+\s+(.+)$/)
+            if (!match) continue
+            const name = match[1].trim()
+            const value = match[2].trim()
+            if (!name || !value) continue
+
+            const fileName = path.basename(value)
+            let filePath = value
+            if (!path.isAbsolute(filePath)) {
+              filePath = path.join(fontDir, fileName)
+            }
+
+            const displayName = name.replace(/\s*\(TrueType\)$/i, '').replace(/\s*\(OpenType\)$/i, '').trim()
+            const familyName = displayName
+
+            if (familyName && !seenNames.has(familyName)) {
+              seenNames.add(familyName)
+              fontInfoList.push({
+                familyName: familyName,
+                displayName: displayName
+              })
+            }
           }
-        }
-      })
+        } catch (_) {}
+      }
     } catch (e) {
-      console.error('Failed to get fonts via PowerShell:', e)
+      console.error('Failed to get fonts via reg:', e)
     }
   }
-  
+
   if (fontInfoList.length === 0) {
     const defaults = ['Microsoft YaHei', 'SimSun', 'SimHei', 'KaiTi', 'FangSong', 'Arial', 'Times New Roman']
     defaults.forEach(name => {
       fontInfoList.push({ familyName: name, displayName: name })
     })
   }
-  
-  return fontInfoList.sort((a, b) => a.displayName.localeCompare(b.displayName))
+
+  return fontInfoList.sort((a, b) => a.displayName.localeCompare(b.displayName, 'zh-CN'))
 })
 
-ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
+let fontFileMap = null
+
+function buildFontFileMap() {
+  if (fontFileMap) return fontFileMap
   const { execSync } = require('child_process')
+  const path = require('path')
+  fontFileMap = new Map()
+
+  if (process.platform !== 'win32') return fontFileMap
+
+  const fontDir = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts')
+  const regKeys = [
+    'HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts',
+    'HKCU\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts'
+  ]
+
+  for (const regKey of regKeys) {
+    try {
+      const buffer = execSync(`chcp 65001 >nul && reg query "${regKey}"`)
+      const output = buffer.toString('utf8')
+      const lines = output.split('\n')
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('HKEY_')) continue
+        const match = trimmed.match(/^(.+?)\s+REG_\w+\s+(.+)$/)
+        if (!match) continue
+        const name = match[1].trim()
+        const value = match[2].trim()
+        if (!name || !value) continue
+
+        const displayName = name.replace(/\s*\(TrueType\)$/i, '').replace(/\s*\(OpenType\)$/i, '').trim()
+        const fileName = path.basename(value)
+        let filePath = value
+        if (!path.isAbsolute(filePath)) {
+          filePath = path.join(fontDir, fileName)
+        }
+
+        const key = displayName.toLowerCase()
+        if (!fontFileMap.has(key)) {
+          fontFileMap.set(key, filePath)
+        }
+      }
+    } catch (_) {}
+  }
+
+  return fontFileMap
+}
+
+ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
   const fs = require('fs')
   const path = require('path')
-  
+
   function pathToFileUrl(p) {
     return 'file:///' + p.replace(/\\/g, '/')
   }
-  
-  function findFontFile(fontFamily) {
-    try {
-      const fontKeyScript = `(Get-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts').Property | Where-Object { $_ -match '${fontFamily}' } | Select-Object -First 1`
-      const fontKey = execSync(`powershell -Command "${fontKeyScript}"`, { encoding: 'utf-8' }).trim()
-      
-      if (fontKey) {
-        const fontPathScript = `(Get-Item 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts').GetValue('${fontKey}')`
-        const fontFileName = execSync(`powershell -Command "${fontPathScript}"`, { encoding: 'utf-8' }).trim()
-        
-        if (fontFileName) {
-          const fullPath = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts', fontFileName)
-          if (fs.existsSync(fullPath)) return fullPath
-        }
+
+  function findFontFile(ff) {
+    const map = buildFontFileMap()
+    const key = ff.toLowerCase()
+    if (map.has(key)) {
+      const fp = map.get(key)
+      if (fs.existsSync(fp)) return fp
+    }
+    for (const [k, v] of map.entries()) {
+      if (k.includes(key) || key.includes(k)) {
+        if (fs.existsSync(v)) return v
       }
-      
-      const userFontKeyScript = `(Get-Item 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts').Property | Where-Object { $_ -match '${fontFamily}' } | Select-Object -First 1`
-      const userFontKey = execSync(`powershell -Command "${userFontKeyScript}"`, { encoding: 'utf-8' }).trim()
-      
-      if (userFontKey) {
-        const fontPathScript = `(Get-Item 'HKCU:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Fonts').GetValue('${userFontKey}')`
-        const fontFileName = execSync(`powershell -Command "${fontPathScript}"`, { encoding: 'utf-8' }).trim()
-        
-        if (fontFileName) {
-          if (path.isAbsolute(fontFileName) && fs.existsSync(fontFileName)) return fontFileName
-          const userFullPath = path.join(process.env.WINDIR || 'C:\\Windows', 'Fonts', fontFileName)
-          if (fs.existsSync(userFullPath)) return userFullPath
-        }
-      }
-    } catch (e) {
-      console.error('Failed to find font file:', e)
     }
     return null
   }
-  
+
   if (process.platform === 'win32') {
     const fontPath = findFontFile(fontFamily)
     if (fontPath) {
-      const stat = fs.statSync(fontPath)
-      if (stat.size > 5 * 1024 * 1024) {
-        return pathToFileUrl(fontPath)
-      }
-      const buffer = fs.readFileSync(fontPath)
-      const ext = path.extname(fontPath).toLowerCase()
-      let mimeType = 'font/truetype'
-      if (ext === '.otf') mimeType = 'font/opentype'
-      if (ext === '.woff') mimeType = 'font/woff'
-      if (ext === '.woff2') mimeType = 'font/woff2'
-      return `data:${mimeType};base64,${buffer.toString('base64')}`
+      return pathToFileUrl(fontPath)
     }
   }
-  
+
   return null
 })
 
