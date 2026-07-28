@@ -82,20 +82,23 @@
         }
         
         .font-family-options {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
         }
         
         .font-option {
-            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
             background: rgba(255, 255, 255, 0.05);
             border: 2px solid transparent;
             border-radius: 8px;
             cursor: pointer;
-            text-align: center;
             transition: all 0.2s;
             font-size: 14px;
+            min-height: 38px;
         }
         
         .font-option:hover {
@@ -108,6 +111,38 @@
             color: #66CCFF;
             font-weight: 600;
             box-shadow: 0 0 8px rgba(102, 204, 255, 0.4);
+        }
+
+        .font-option-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            text-align: left;
+            margin-right: 12px;
+            line-height: 1.3;
+        }
+
+        .font-option-preview {
+            flex-shrink: 0;
+            font-size: 16px;
+            opacity: 0.7;
+            white-space: nowrap;
+        }
+
+        .font-option-tag {
+            flex-shrink: 0;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            margin-left: 8px;
+        }
+
+        .font-option.selected .font-option-tag {
+            background: rgba(102, 204, 255, 0.3);
+            color: #66CCFF;
         }
         
         .button-group {
@@ -184,7 +219,7 @@
         <div class="setting-item">
             <label class="setting-label">主字体</label>
             <input type="text" id="fontSearchInput" class="text-input" placeholder="搜索字体..." style="margin-bottom: 8px;">
-            <div class="font-family-options" id="fontFamilyOptions" style="max-height: 200px; overflow-y: auto;">
+            <div class="font-family-options" id="fontFamilyOptions" style="max-height: 240px; overflow-y: auto;">
             </div>
         </div>
 
@@ -193,7 +228,7 @@
         <div class="setting-item">
             <label class="setting-label">回退字体</label>
             <input type="text" id="fontFallbackSearchInput" class="text-input" placeholder="搜索字体..." style="margin-bottom: 8px;">
-            <div class="font-family-options" id="fontFallbackOptions" style="max-height: 200px; overflow-y: auto;">
+            <div class="font-family-options" id="fontFallbackOptions" style="max-height: 240px; overflow-y: auto;">
             </div>
         </div>
         
@@ -261,17 +296,68 @@
             renderFontOptions(allFonts, fontFallbackOptions);
         }
 
+        function simplifyFontName(name) {
+            if (!name) return name;
+            // 去除后缀：Regular, Bold, Light, 等字重标识
+            let simplified = name
+                .replace(/\s*(Regular|Bold|Light|Medium|Black|Thin|ExtraLight|SemiBold|Heavy|Italic|Oblique)\s*$/i, '')
+                .replace(/\s*&.*$/, '')  // 去除 "& ..." 后缀（如 Noto Sans CJK KR Regular & ...）
+                .replace(/\s{2,}/g, ' ')
+                .trim();
+            // 尝试提取基础家族名
+            const familyMatch = simplified.match(/^(.+?)\s+(CJK|Mono|Sans|Serif|Display|Handwriting|Monospace)\b/i);
+            if (familyMatch) {
+                const base = simplified.split(/\s+(CJK|Mono)\s+/i)[0];
+                const suffix = simplified.match(/(CJK|Mono)\s+(KR|SC|TC|JP)\b/i);
+                if (suffix) {
+                    return simplified.replace(/\s+(KR|SC|TC|JP)\s+(Regular|Bold|Light|Medium|Black|Thin).*$/i, '');
+                }
+            }
+            return simplified || name;
+        }
+
+        function getFontTag(displayName, familyName) {
+            if (displayName === familyName) return '';
+            // 提取语种标签
+            const langMatch = displayName.match(/\b(KR|SC|TC|JP|HK)\b/);
+            if (langMatch) return langMatch[1];
+            return '';
+        }
+
         function renderFontOptions(fonts, container) {
             container.innerHTML = '';
 
             fonts.forEach(font => {
                 const familyName = font.familyName || font;
                 const displayName = font.displayName || familyName;
+                const shortName = simplifyFontName(displayName);
+                const tag = getFontTag(displayName, familyName);
 
                 const fontOption = document.createElement('div');
                 fontOption.className = 'font-option';
                 fontOption.dataset.font = familyName;
-                fontOption.textContent = displayName;
+                fontOption.title = displayName; // 悬停显示完整名
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'font-option-name';
+                nameSpan.textContent = shortName;
+                nameSpan.title = displayName;
+
+                // 尝试用该字体渲染预览（对系统字体有效）
+                const previewSpan = document.createElement('span');
+                previewSpan.className = 'font-option-preview';
+                previewSpan.textContent = 'Aa 字';
+                previewSpan.style.fontFamily = familyName.replace(/['"]/g, '');
+                previewSpan.title = displayName;
+
+                fontOption.appendChild(nameSpan);
+                if (tag) {
+                    const tagSpan = document.createElement('span');
+                    tagSpan.className = 'font-option-tag';
+                    tagSpan.textContent = tag;
+                    fontOption.appendChild(tagSpan);
+                }
+                fontOption.appendChild(previewSpan);
 
                 container.appendChild(fontOption);
             });
@@ -288,7 +374,10 @@
             const filtered = allFonts.filter(f => {
                 const familyName = f.familyName || f;
                 const displayName = f.displayName || familyName;
-                return familyName.toLowerCase().includes(q) || displayName.toLowerCase().includes(q);
+                const shortName = simplifyFontName(displayName);
+                return familyName.toLowerCase().includes(q) 
+                    || displayName.toLowerCase().includes(q)
+                    || shortName.toLowerCase().includes(q);
             });
             renderFontOptions(filtered, container);
         }

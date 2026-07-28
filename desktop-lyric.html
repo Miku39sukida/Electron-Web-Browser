@@ -45,7 +45,7 @@
         
         .lyric-main {
             font-size: 28px;
-            font-weight: 500;
+            font-weight: 400;
             text-align: center;
             line-height: 1.6;
             margin-bottom: 10px;
@@ -378,191 +378,462 @@
             });
         }
         
+        // ============ 字体系统 ============
         let customFontLoaded = false;
         let currentFontLoadToken = 0;
+        let loadedFontFaces = [];
+        let loadingFontKey = null;
+        let loadingFontPromise = null;
+        let currentFontWeight = '400';
+        let lastFontFamilyStr = null;
+        let fontsReady = false;
+        let pendingLyricUpdate = null;
+        let fontInstanceCounter = 0;
+        let isInitializing = true;
 
-        if (window.electronAPI && window.electronAPI.onLyricSettingsChange) {
-            window.electronAPI.onLyricSettingsChange(async (settings) => {
-                if (!settings.fontFallback) settings.fontFallback = settings.fontFamily || 'Microsoft YaHei';
-                const oldFontFamily = lyricSettings.fontFamily;
-                const oldFontFallback = lyricSettings.fontFallback;
-                lyricSettings = settings;
-                isKaraokeMode = settings.karaokeMode || false;
-                karaokeBtn.classList.toggle('active', isKaraokeMode);
-
-                if (settings.fontFamily !== oldFontFamily
-                    || settings.fontFallback !== oldFontFallback
-                    || !customFontLoaded) {
-                    const loadToken = ++currentFontLoadToken;
-                    try {
-                        const fontFamilyStr = await loadFont(settings.fontFamily, settings.fontFallback);
-                        if (loadToken !== currentFontLoadToken) return;
-                        applySettings(fontFamilyStr);
-                        customFontLoaded = true;
-                    } catch (e) {
-                        console.error('Font load failed:', e);
-                        if (loadToken !== currentFontLoadToken) return;
-                        applySettings();
-                    }
-                } else {
-                    applySettings();
+        function clearLoadedFontFaces() {
+            for (const ff of loadedFontFaces) {
+                try { document.fonts.delete(ff.fontFace); } catch (_) {}
+                if (ff.blobUrl) {
+                    try { URL.revokeObjectURL(ff.blobUrl); } catch (_) {}
                 }
-            });
+            }
+            loadedFontFaces = [];
+        }
+
+        function quoteFontFamily(name) {
+            if (!name) return name;
+            // Always quote: names with spaces, starting with digits, or containing special chars
+            const needsQuoting = /^\d/.test(name) || /[^a-zA-Z0-9-]/.test(name) || name.includes(' ');
+            if (needsQuoting) {
+                return "'" + name + "'";
+            }
+            return name;
+        }
+
+        function inferFontWeight(fontName) {
+            const lower = fontName.toLowerCase();
+            if (lower.includes('thin')) return '100';
+            if (lower.includes('extra light') || lower.includes('extralight')) return '200';
+            if (lower.includes('light')) return '300';
+            if (lower.includes('regular') || lower.includes('normal') || lower.includes('book')) return '400';
+            if (lower.includes('medium')) return '500';
+            if (lower.includes('semibold') || lower.includes('demibold')) return '600';
+            if (lower.includes('bold')) return '700';
+            if (lower.includes('extra bold') || lower.includes('extrabold')) return '800';
+            if (lower.includes('black') || lower.includes('heavy')) return '900';
+            return '400';
+        }
+
+        async function loadFontFaceFromUrl(fontName, url, fontWeight) {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Fetch failed: ' + response.status);
+            const contentLength = response.headers.get('Content-Length');
+            if (contentLength && parseInt(contentLength) === 0) {
+                throw new Error('Font file is empty (0 bytes)');
+            }
+            const arrayBuffer = await response.arrayBuffer();
+            if (arrayBuffer.byteLength === 0) {
+                throw new Error('Font file data is empty');
+            }
+            
+            console.log('[Font] Loading "' + fontName + '" from ' + arrayBuffer.byteLength + ' bytes with weight ' + fontWeight + '...');
+            
+            let fontFace;
+            let usedBlobFallback = false;
+            
+            try {
+                fontFace = new FontFace(fontName, arrayBuffer, { 
+                    weight: fontWeight, 
+                    style: 'normal' 
+                });
+                await fontFace.load();
+            } catch (e) {
+                console.warn('[Font] ArrayBuffer load failed for "' + fontName + '", falling back to Blob URL:', e.message);
+                const blob = new Blob([arrayBuffer]);
+                const blobUrl = URL.createObjectURL(blob);
+                fontFace = new FontFace(fontName, 'url("' + blobUrl + '")', { 
+                    weight: fontWeight, 
+                    style: 'normal' 
+                });
+                await fontFace.load();
+                usedBlobFallback = true;
+                loadedFontFaces.push({ fontFace: fontFace, blobUrl: blobUrl });
+            }
+            
+            if (!usedBlobFallback) {
+                loadedFontFaces.push({ fontFace: fontFace, blobUrl: null });
+            }
+            
+            document.fonts.add(fontFace);
+            
+            console.log('[Font] "' + fontName + '" loaded: weight=' + fontFace.weight + ' status=' + fontFace.status);
+            
+            return fontWeight;
         }
 
         async function loadFont(fontFamily, fontFallback) {
             if (!window.electronAPI) return null;
 
-            const customFontName = `CustomLyricFont`;
-            const customFallbackName = `CustomLyricFallbackFont`;
+            console.log('[Font] loadFont called: primary="' + fontFamily + '", fallback="' + fontFallback + '"');
+            clearLoadedFontFaces();
+
+            fontInstanceCounter++;
+            const customFontName = 'CustomLyricFont_' + fontInstanceCounter;
+            const customFallbackName = 'CustomLyricFallbackFont_' + fontInstanceCounter;
             const fallbackFamily = fontFallback || fontFamily;
 
-            // 主字体和回退字体使用完全相同的加载方式
-            const dataUrl = await window.electronAPI.getFontDataUrl(fontFamily);
-            const fallbackDataUrl = fallbackFamily !== fontFamily
+            const fontUrl = await window.electronAPI.getFontDataUrl(fontFamily);
+            const fallbackUrl = fallbackFamily !== fontFamily
                 ? await window.electronAPI.getFontDataUrl(fallbackFamily)
                 : null;
 
-            if (dataUrl || fallbackDataUrl) {
-                let styleSheet = document.getElementById('custom-font-stylesheet');
-                if (!styleSheet) {
-                    styleSheet = document.createElement('style');
-                    styleSheet.id = 'custom-font-stylesheet';
-                    document.head.appendChild(styleSheet);
-                }
+            console.log('[Font] URLs: primary=' + fontUrl + ', fallback=' + fallbackUrl);
 
-                const strokeColor = lyricSettings.strokeColor || '#000000';
-                const s = 1.5;
-
-                let fontFaceRules = '';
-                const chain = [];
-
-                // 主字体：与回退字体完全相同的 @font-face 逻辑
-                if (dataUrl) {
-                    fontFaceRules += `
-                        @font-face {
-                            font-family: '${customFontName}';
-                            src: url(${dataUrl});
-                            font-weight: 900;
-                            font-style: normal;
-                            font-display: swap;
-                        }
-                    `;
-                    chain.push(`'${customFontName}'`);
-                    chain.push(fontFamily.includes(' ') ? `'${fontFamily}'` : fontFamily);
-                } else {
-                    chain.push(fontFamily.includes(' ') ? `'${fontFamily}'` : fontFamily);
-                }
-
-                // 回退字体：与主字体完全相同的 @font-face 逻辑
-                if (fallbackDataUrl && fallbackFamily !== fontFamily) {
-                    fontFaceRules += `
-                        @font-face {
-                            font-family: '${customFallbackName}';
-                            src: url(${fallbackDataUrl});
-                            font-weight: 900;
-                            font-style: normal;
-                            font-display: swap;
-                        }
-                    `;
-                    chain.push(`'${customFallbackName}'`);
-                    chain.push(fallbackFamily.includes(' ') ? `'${fallbackFamily}'` : fallbackFamily);
-                } else if (fallbackFamily !== fontFamily) {
-                    chain.push(fallbackFamily.includes(' ') ? `'${fallbackFamily}'` : fallbackFamily);
-                }
-
-                chain.push('sans-serif');
-
-                styleSheet.textContent = `
-                    ${fontFaceRules}
-                    .lyric-karaoke-char.active {
-                        text-shadow:
-                            -${s}px -${s}px 0 ${strokeColor},
-                            ${s}px -${s}px 0 ${strokeColor},
-                            -${s}px ${s}px 0 ${strokeColor},
-                            ${s}px ${s}px 0 ${strokeColor},
-                            0 -${s}px 0 ${strokeColor},
-                            0 ${s}px 0 ${strokeColor},
-                            -${s}px 0 0 ${strokeColor},
-                            ${s}px 0 0 ${strokeColor},
-                            0 0 8px var(--highlight-color, ${lyricSettings.textColor});
-                    }
-                `;
-
-                return chain.join(', ');
-            } else {
-                const fontName = fontFamily.includes(' ') ? `'${fontFamily}'` : fontFamily;
-                const fallbackName = fallbackFamily.includes(' ') ? `'${fallbackFamily}'` : fallbackFamily;
-                if (fallbackFamily !== fontFamily) {
-                    return `${fontName}, ${fallbackName}, sans-serif`;
-                }
-                return `${fontName}, sans-serif`;
+            if (!fontUrl && !fallbackUrl) {
+                console.log('[Font] No URLs found, using system fonts only');
+                const fontName = quoteFontFamily(fontFamily);
+                const fallbackName = quoteFontFamily(fallbackFamily);
+                return {
+                    fontFamilyStr: fallbackFamily !== fontFamily
+                        ? fontName + ', ' + fallbackName + ', sans-serif'
+                        : fontName + ', sans-serif',
+                    fontWeight: '400'
+                };
             }
+
+            let styleSheet = document.getElementById('custom-font-stylesheet');
+            if (!styleSheet) {
+                styleSheet = document.createElement('style');
+                styleSheet.id = 'custom-font-stylesheet';
+                document.head.appendChild(styleSheet);
+            }
+
+            const strokeColor = lyricSettings.strokeColor || '#000000';
+            const s = 1.5;
+            const chain = [];
+            let primaryWeight = inferFontWeight(fontFamily);
+            let primaryLoaded = false;
+
+            if (fontUrl) {
+                try {
+                    console.log('[Font] Loading primary font: ' + fontFamily + ' with weight ' + primaryWeight);
+                    primaryWeight = await loadFontFaceFromUrl(customFontName, fontUrl, primaryWeight);
+                    console.log('[Font] Primary font "' + fontFamily + '" loaded, weight=' + primaryWeight);
+                    primaryLoaded = true;
+                } catch (e) {
+                    console.error('[Font] Primary font "' + fontFamily + '" failed:', e);
+                }
+                chain.push("'" + customFontName + "'");
+                chain.push(quoteFontFamily(fontFamily));
+            } else {
+                console.log('[Font] Primary font "' + fontFamily + '" URL not found');
+                chain.push(quoteFontFamily(fontFamily));
+            }
+
+            if (fallbackUrl && fallbackFamily !== fontFamily) {
+                try {
+                    const fallbackWeight = inferFontWeight(fallbackFamily);
+                    console.log('[Font] Loading fallback font: ' + fallbackFamily + ' with weight ' + fallbackWeight);
+                    const actualFallbackWeight = await loadFontFaceFromUrl(customFallbackName, fallbackUrl, fallbackWeight);
+                    console.log('[Font] Fallback font "' + fallbackFamily + '" loaded, weight=' + actualFallbackWeight);
+                    // 仅当主字体加载失败时，才使用回退字体的字重
+                    if (!primaryLoaded) {
+                        primaryWeight = actualFallbackWeight;
+                    }
+                } catch (e) {
+                    console.error('[Font] Fallback font "' + fallbackFamily + '" failed:', e);
+                }
+                chain.push("'" + customFallbackName + "'");
+                chain.push(quoteFontFamily(fallbackFamily));
+            } else if (fallbackFamily !== fontFamily) {
+                console.log('[Font] Fallback font "' + fallbackFamily + '" URL not found');
+                chain.push(quoteFontFamily(fallbackFamily));
+            }
+
+            chain.push('sans-serif');
+
+            styleSheet.textContent = 
+                '.lyric-karaoke-char.active {' +
+                'text-shadow:' +
+                '-' + s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
+                s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
+                '-' + s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
+                s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
+                '0 -' + s + 'px 0 ' + strokeColor + ', ' +
+                '0 ' + s + 'px 0 ' + strokeColor + ', ' +
+                '-' + s + 'px 0 0 ' + strokeColor + ', ' +
+                s + 'px 0 0 ' + strokeColor + ', ' +
+                '0 0 8px var(--highlight-color, ' + lyricSettings.textColor + ');' +
+                '}';
+
+            return { fontFamilyStr: chain.join(', '), fontWeight: primaryWeight };
+        }
+
+        function applyFontAndRefresh(fontFamilyStr, fontWeight) {
+            console.log('[Font] applyFontAndRefresh: "' + fontFamilyStr + '", weight=' + fontWeight);
+            console.log('[Font] Total fonts: ' + document.fonts.size);
+            
+            lastFontFamilyStr = fontFamilyStr;
+            currentFontWeight = fontWeight;
+            
+            document.body.style.fontFamily = fontFamilyStr;
+            lyricMain.style.fontFamily = fontFamilyStr;
+            lyricTranslation.style.fontFamily = fontFamilyStr;
+            
+            document.body.style.fontWeight = fontWeight;
+            lyricMain.style.fontWeight = fontWeight;
+            lyricTranslation.style.fontWeight = fontWeight;
+            
+            // 验证字体是否可用
+            const verifyFonts = async function() {
+                try {
+                    const fontNames = fontFamilyStr.split(',').map(function(s) { 
+                        const trimmed = s.trim();
+                        if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+                            return trimmed.slice(1, -1);
+                        }
+                        return null;
+                    }).filter(Boolean).filter(function(n) { return n.startsWith('CustomLyric'); });
+                    
+                    for (const name of fontNames) {
+                        try {
+                            const loaded = await document.fonts.load('16px ' + name);
+                            console.log('[Font] Verified "' + name + '": loaded=' + loaded.length);
+                        } catch (e) {
+                            console.warn('[Font] Verification failed for "' + name + '":', e.message);
+                        }
+                    }
+                    
+                    const testEl = document.createElement('span');
+                    testEl.textContent = '测试Testあアイウ';
+                    testEl.style.fontFamily = fontFamilyStr;
+                    testEl.style.fontWeight = fontWeight;
+                    testEl.style.fontSize = '40px';
+                    testEl.style.visibility = 'hidden';
+                    document.body.appendChild(testEl);
+                    requestAnimationFrame(function() {
+                        const computedFont = window.getComputedStyle(testEl).fontFamily;
+                        console.log('[Font] Computed fontFamily: ' + computedFont);
+                        document.body.removeChild(testEl);
+                    });
+                } catch (e) {
+                    console.warn('[Font] Font verification error:', e);
+                }
+            };
+            verifyFonts();
+            
+            // 强制浏览器重新渲染
+            void lyricMain.offsetHeight;
+            void lyricTranslation.offsetHeight;
+            
+            // 对卡拉OK模式的字符也应用字体
+            const karaokeChars = lyricMain.querySelectorAll('.lyric-karaoke-char');
+            karaokeChars.forEach(function(char) {
+                char.style.fontFamily = fontFamilyStr;
+                char.style.fontWeight = fontWeight;
+            });
+            
+            console.log('[Font] Font applied: family="' + fontFamilyStr + '", weight=' + fontWeight + ', karaokeChars=' + karaokeChars.length);
+            
+            // 触发一次强制重绘：先清除再设置 font-family
+            // 这是解决大字体首次加载不生效的关键步骤
+            requestAnimationFrame(function() {
+                document.body.style.fontFamily = fontFamilyStr;
+                lyricMain.style.fontFamily = fontFamilyStr;
+                lyricTranslation.style.fontFamily = fontFamilyStr;
+                document.body.style.fontWeight = fontWeight;
+                lyricMain.style.fontWeight = fontWeight;
+                lyricTranslation.style.fontWeight = fontWeight;
+            });
+        }
+
+        async function loadFontWithRetry(fontFamily, fontFallback, maxRetries) {
+            maxRetries = maxRetries || 3;
+            let lastError = null;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const result = await loadFont(fontFamily, fontFallback);
+                    if (result) return result;
+                } catch (e) {
+                    lastError = e;
+                    console.warn('Font load attempt ' + (attempt + 1) + ' failed:', e);
+                    if (attempt < maxRetries - 1) {
+                        await new Promise(function(r) { setTimeout(r, 200 * (attempt + 1)); });
+                    }
+                }
+            }
+            throw lastError || new Error('Font load failed after retries');
+        }
+
+        async function applyFontSettings(fontFamily, fontFallback) {
+            const fontKey = fontFamily + '|' + fontFallback;
+            if (loadingFontKey === fontKey && loadingFontPromise) {
+                return loadingFontPromise;
+            }
+            loadingFontKey = fontKey;
+            loadingFontPromise = (async function() {
+                const loadToken = ++currentFontLoadToken;
+                try {
+                    const result = await loadFontWithRetry(fontFamily, fontFallback, 3);
+                    if (loadToken !== currentFontLoadToken) return;
+                    applyFontAndRefresh(result.fontFamilyStr, result.fontWeight);
+                    customFontLoaded = true;
+                    fontsReady = true;
+                    
+                    // 应用待处理的歌词更新
+                    if (pendingLyricUpdate) {
+                        const update = pendingLyricUpdate;
+                        pendingLyricUpdate = null;
+                        updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                    }
+                    
+                    // 延迟再应用一次，确保浏览器完全加载字体
+                    setTimeout(function() {
+                        if (loadToken !== currentFontLoadToken) return;
+                        applyFontAndRefresh(result.fontFamilyStr, result.fontWeight);
+                        // 再次应用待处理的歌词
+                        if (pendingLyricUpdate) {
+                            const update = pendingLyricUpdate;
+                            pendingLyricUpdate = null;
+                            updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                        }
+                    }, 300);
+                    
+                    // 再延迟一次，覆盖所有可能的竞态条件
+                    setTimeout(function() {
+                        if (loadToken !== currentFontLoadToken) return;
+                        applyFontAndRefresh(result.fontFamilyStr, result.fontWeight);
+                    }, 1000);
+                } catch (e) {
+                    console.error('Font load failed after retries:', e);
+                    // 字体加载失败时，仍然允许显示歌词（使用系统字体）
+                    fontsReady = true;
+                } finally {
+                    if (loadingFontKey === fontKey) {
+                        loadingFontKey = null;
+                        loadingFontPromise = null;
+                    }
+                }
+            })();
+            return loadingFontPromise;
+        }
+
+        // 当字体设置变化时，重新加载字体
+        if (window.electronAPI && window.electronAPI.onLyricSettingsChange) {
+            window.electronAPI.onLyricSettingsChange(async function(settings) {
+                if (!settings.fontFallback) settings.fontFallback = settings.fontFamily || 'Microsoft YaHei';
+                const fontChanged = settings.fontFamily !== lyricSettings.fontFamily
+                    || settings.fontFallback !== lyricSettings.fontFallback;
+                lyricSettings = settings;
+                isKaraokeMode = settings.karaokeMode || false;
+                karaokeBtn.classList.toggle('active', isKaraokeMode);
+                
+                // 只应用非字体设置（颜色、大小等），不改变字重
+                applySettingsWithoutFont();
+                
+                if (fontChanged || !customFontLoaded) {
+                    // 字体变化时强制重新加载
+                    fontsReady = false;
+                    applyFontSettings(settings.fontFamily, settings.fontFallback);
+                } else if (lastFontFamilyStr) {
+                    // 字体没变化但已加载，重新应用字体确保不丢失
+                    applyFontAndRefresh(lastFontFamilyStr, currentFontWeight);
+                }
+            });
         }
         
+        // 初始化：先加载设置，再加载字体，最后显示歌词
         async function loadSettings() {
             if (window.electronAPI) {
                 try {
+                    // 第1步：获取设置
                     lyricSettings = await window.electronAPI.getLyricSettings();
                     if (!lyricSettings.fontFallback) lyricSettings.fontFallback = lyricSettings.fontFamily || 'Microsoft YaHei';
                     isKaraokeMode = lyricSettings.karaokeMode || false;
                     karaokeBtn.classList.toggle('active', isKaraokeMode);
-                    const fontFamilyStr = await loadFont(lyricSettings.fontFamily, lyricSettings.fontFallback);
-                    applySettings(fontFamilyStr);
-                    customFontLoaded = true;
+                    
+                    // 第2步：先应用基础设置（颜色、大小），但不改变字重
+                    applySettingsWithoutFont();
+                    
+                    // 第3步：加载字体（异步）
+                    applyFontSettings(lyricSettings.fontFamily, lyricSettings.fontFallback);
                 } catch (e) {
                     console.error('Failed to load settings:', e);
-                    applySettings();
+                    applySettingsWithoutFont();
+                    fontsReady = true;
                 }
             }
         }
         
-        function applySettings(fontFamilyStr = null) {
+        function applySettingsWithoutFont() {
             document.body.style.color = lyricSettings.textColor;
             const strokeColor = lyricSettings.strokeColor || '#000000';
             const s = 1.5;
-            const textShadow = `
-                -${s}px -${s}px 0 ${strokeColor},
-                ${s}px -${s}px 0 ${strokeColor},
-                -${s}px ${s}px 0 ${strokeColor},
-                ${s}px ${s}px 0 ${strokeColor},
-                0 -${s}px 0 ${strokeColor},
-                0 ${s}px 0 ${strokeColor},
-                -${s}px 0 0 ${strokeColor},
-                ${s}px 0 0 ${strokeColor}
-            `;
+            const textShadow = 
+                '-' + s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
+                s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
+                '-' + s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
+                s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
+                '0 -' + s + 'px 0 ' + strokeColor + ', ' +
+                '0 ' + s + 'px 0 ' + strokeColor + ', ' +
+                '-' + s + 'px 0 0 ' + strokeColor + ', ' +
+                s + 'px 0 0 ' + strokeColor;
             document.body.style.textShadow = textShadow;
             lyricTranslation.style.textShadow = textShadow;
             
-            if (fontFamilyStr) {
-                document.body.style.fontFamily = fontFamilyStr;
-                lyricMain.style.fontFamily = fontFamilyStr;
-                lyricTranslation.style.fontFamily = fontFamilyStr;
-            }
-            
-            document.body.style.fontWeight = '900';
-            lyricMain.style.fontWeight = '900';
-            lyricTranslation.style.fontWeight = '900';
+            // 使用当前字重（由 applyFontAndRefresh 设置），默认 400
+            // 关键修复：不再硬编码 900，否则自定义字体无法匹配
+            document.body.style.fontWeight = currentFontWeight || '400';
+            lyricMain.style.fontWeight = currentFontWeight || '400';
+            lyricTranslation.style.fontWeight = currentFontWeight || '400';
             
             fontSize = lyricSettings.fontSize;
-            lyricMain.style.fontSize = `${fontSize}px`;
-            lyricTranslation.style.fontSize = `${Math.floor(fontSize * 0.57)}px`;
+            lyricMain.style.fontSize = fontSize + 'px';
+            lyricTranslation.style.fontSize = Math.floor(fontSize * 0.57) + 'px';
             document.documentElement.style.setProperty('--highlight-color', lyricSettings.textColor);
+        }
+        
+        // 兼容旧代码：applySettings 改为调用 applySettingsWithoutFont
+        // 保留此函数名以避免其他地方的调用出错
+        function applySettings(fontFamilyStr) {
+            applySettingsWithoutFont();
+            if (fontFamilyStr) {
+                applyFontAndRefresh(fontFamilyStr, currentFontWeight || '400');
+            }
         }
         
         loadSettings();
         
-        function updateLyric(text, translation, karaoke = [], lineEndTime = null) {
+        // ============ 歌词更新 ============
+        function updateLyric(text, translation, karaoke, lineEndTime) {
+            karaoke = karaoke || [];
+            
+            // 如果字体还没就绪，缓存歌词更新
+            if (!fontsReady && !isInitializing) {
+                pendingLyricUpdate = { text: text, translation: translation, karaoke: karaoke, lineEndTime: lineEndTime };
+                console.log('[Font] Font not ready, lyric update cached');
+                return;
+            }
+            
             if (text && !text.startsWith('(空行)')) {
                 if (isKaraokeMode && karaoke.length > 0) {
                     currentKaraokeSlots = _buildFlattenCharSlots(karaoke, lineEndTime);
                     if (currentKaraokeSlots.length > 0) {
-                        lyricMain.innerHTML = currentKaraokeSlots.map((slot) => 
-                            `<span class="lyric-karaoke-char">${slot.text}</span>`
-                        ).join('');
+                        lyricMain.innerHTML = currentKaraokeSlots.map(function(slot) { 
+                            return '<span class="lyric-karaoke-char">' + slot.text + '</span>';
+                        }).join('');
                         lyricMain.classList.add('karaoke-mode');
                         startKaraokeAnimation();
                         updateKaraokeDisplay();
+                        // 对卡拉OK字符应用当前字体
+                        if (lastFontFamilyStr) {
+                            const chars = lyricMain.querySelectorAll('.lyric-karaoke-char');
+                            chars.forEach(function(char) {
+                                char.style.fontFamily = lastFontFamilyStr;
+                                char.style.fontWeight = currentFontWeight || '400';
+                            });
+                        }
                     } else {
                         lyricMain.textContent = text;
                         lyricMain.classList.remove('karaoke-mode');
@@ -590,7 +861,23 @@
             }
         }
         
-        lyricContainer.addEventListener('mousedown', async (e) => {
+        // 初始化完成后解除 isInitializing 标志
+        // 如果字体仍未就绪（不应发生），强制解锁歌词显示
+        setTimeout(function() {
+            isInitializing = false;
+            if (!fontsReady) {
+                fontsReady = true;
+                console.log('[Font] Init timeout, forcing fontsReady=true');
+                if (pendingLyricUpdate) {
+                    const update = pendingLyricUpdate;
+                    pendingLyricUpdate = null;
+                    updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                }
+            }
+        }, 2000);
+        
+        // ============ 拖拽交互 ============
+        lyricContainer.addEventListener('mousedown', async function(e) {
             if (!isInteractive || e.target.classList.contains('control-btn')) return;
             
             isDragging = true;
@@ -598,15 +885,15 @@
             dragStartY = e.screenY;
             
             if (window.electronAPI) {
-                const [wx, wy] = await window.electronAPI.getLyricWindowPosition();
-                winStartX = wx;
-                winStartY = wy;
+                const pos = await window.electronAPI.getLyricWindowPosition();
+                winStartX = pos[0];
+                winStartY = pos[1];
             }
             
             document.body.style.cursor = 'grabbing';
         });
         
-        document.addEventListener('mousemove', (e) => {
+        document.addEventListener('mousemove', function(e) {
             if (!isDragging) return;
             const dx = e.screenX - dragStartX;
             const dy = e.screenY - dragStartY;
@@ -617,20 +904,21 @@
             }
         });
         
-        document.addEventListener('mouseup', () => {
+        document.addEventListener('mouseup', function() {
             if (isDragging) {
                 isDragging = false;
                 document.body.style.cursor = isInteractive ? 'move' : 'default';
             }
         });
         
-        settingsBtn.addEventListener('click', () => {
+        // ============ 按钮事件 ============
+        settingsBtn.addEventListener('click', function() {
             if (window.electronAPI) {
                 window.electronAPI.openLyricSettings();
             }
         });
         
-        karaokeBtn.addEventListener('click', () => {
+        karaokeBtn.addEventListener('click', function() {
             isKaraokeMode = !isKaraokeMode;
             karaokeBtn.classList.toggle('active', isKaraokeMode);
             if (window.electronAPI) {
@@ -638,29 +926,29 @@
             }
         });
         
-        fontPlusBtn.addEventListener('click', () => {
+        fontPlusBtn.addEventListener('click', function() {
             fontSize = Math.min(fontSize + 4, 60);
-            lyricMain.style.fontSize = `${fontSize}px`;
+            lyricMain.style.fontSize = fontSize + 'px';
             if (window.electronAPI) {
-                window.electronAPI.saveLyricSettings({ fontSize });
+                window.electronAPI.saveLyricSettings({ fontSize: fontSize });
             }
         });
         
-        fontMinusBtn.addEventListener('click', () => {
+        fontMinusBtn.addEventListener('click', function() {
             fontSize = Math.max(fontSize - 4, 16);
-            lyricMain.style.fontSize = `${fontSize}px`;
+            lyricMain.style.fontSize = fontSize + 'px';
             if (window.electronAPI) {
-                window.electronAPI.saveLyricSettings({ fontSize });
+                window.electronAPI.saveLyricSettings({ fontSize: fontSize });
             }
         });
         
-        closeBtn.addEventListener('click', () => {
+        closeBtn.addEventListener('click', function() {
             if (window.electronAPI) {
                 window.electronAPI.closeDesktopLyric();
             }
         });
         
-        document.body.addEventListener('mouseleave', () => {
+        document.body.addEventListener('mouseleave', function() {
             if (isInteractive) {
                 if (window.electronAPI) {
                     window.electronAPI.toggleLyricInteractive(false);

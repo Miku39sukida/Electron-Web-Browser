@@ -1,6 +1,18 @@
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, globalShortcut, dialog, shell } = require('electron')
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, globalShortcut, dialog, shell, protocol } = require('electron')
 const path = require('path')
 const fs = require('fs')
+
+// 注册自定义字体协议（必须在 app.whenReady 之前）
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'font-asset',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    stream: true
+  }
+}])
 
 const downloads = []
 let downloadIdCounter = 0
@@ -54,6 +66,7 @@ function loadSettings() {
           strokeColor: '#000000',
           fontSize: 28,
           fontFamily: 'Microsoft YaHei',
+          fontFallback: 'Microsoft YaHei',
           karaokeMode: false
         }
         downloadSettings.lyricSettings = { ...defaults, ...saved.lyricSettings }
@@ -682,19 +695,30 @@ function createLyricWindow(ownerWin = null) {
 
   lyricWindow.loadFile('desktop-lyric.html')
 
+  lyricWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.key === 'F12' && input.type === 'keyDown') {
+      event.preventDefault();
+      if (lyricWindow.webContents.isDevToolsOpened()) {
+        lyricWindow.webContents.closeDevTools();
+      } else {
+        lyricWindow.webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+  });
+
   lyricWindow.webContents.on('ready-to-show', () => {
     lyricWindow.setIgnoreMouseEvents(true)
   })
 
   lyricWindow.webContents.on('did-finish-load', () => {
     if (lyricWindow && !lyricWindow.isDestroyed()) {
-      const defaultSettings = { ...downloadSettings.lyricSettings, fontFamily: 'Microsoft YaHei' }
-      lyricWindow.webContents.send('lyric-settings-change', defaultSettings)
+      // 页面完全加载后，发送一次设置作为兜底
+      // HTML 端的 loadSettings() 已处理初始加载，这里仅作为备用
       setTimeout(() => {
         if (lyricWindow && !lyricWindow.isDestroyed()) {
           lyricWindow.webContents.send('lyric-settings-change', downloadSettings.lyricSettings)
         }
-      }, 300)
+      }, 500)
     }
   })
 
@@ -873,7 +897,13 @@ ipcMain.handle('get-system-fonts', async () => {
             }
 
             const displayName = name.replace(/\s*\(TrueType\)$/i, '').replace(/\s*\(OpenType\)$/i, '').trim()
+            // 提取更简洁的家族名作为主标识
             const familyName = displayName
+              .replace(/\s*\(TrueType\)$/i, '')
+              .replace(/\s*\(OpenType\)$/i, '')
+              .replace(/\s*&\s*.+$/, '')        // 去除 "& ..." 后缀
+              .replace(/\s+(Regular|Bold|Light|Medium|Black|Thin|ExtraLight|SemiBold|Heavy)\s*$/i, '')
+              .trim()
 
             if (familyName && !seenNames.has(familyName)) {
               seenNames.add(familyName)
@@ -941,6 +971,30 @@ function buildFontFileMap() {
         if (!fontFileMap.has(key)) {
           fontFileMap.set(key, filePath)
         }
+
+        // 添加简化名作为附加查找键
+        // 例如 "Noto Sans CJK KR Regular & Noto Sans CJK SC Regular" 也能通过 "Noto Sans CJK KR" 查找
+        const simplified = displayName
+          .replace(/\s*\(TrueType\)$/i, '')
+          .replace(/\s*\(OpenType\)$/i, '')
+          .replace(/\s*&\s*.+$/, '')
+          .replace(/\s+(Regular|Bold|Light|Medium|Black|Thin|ExtraLight|SemiBold|Heavy)\s*$/i, '')
+          .trim()
+        if (simplified && simplified !== displayName) {
+          const simpKey = simplified.toLowerCase()
+          if (!fontFileMap.has(simpKey)) {
+            fontFileMap.set(simpKey, filePath)
+          }
+        }
+
+        // 额外：按字体文件名（不含扩展名）索引
+        const nameWithoutExt = path.basename(fileName, path.extname(fileName))
+        if (nameWithoutExt) {
+          const extKey = nameWithoutExt.toLowerCase()
+          if (!fontFileMap.has(extKey)) {
+            fontFileMap.set(extKey, filePath)
+          }
+        }
       }
     } catch (_) {}
   }
@@ -952,10 +1006,6 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
   const fs = require('fs')
   const path = require('path')
 
-  function pathToFileUrl(p) {
-    return 'file:///' + p.replace(/\\/g, '/')
-  }
-
   function findFontFile(ff) {
     const map = buildFontFileMap()
     const key = ff.toLowerCase()
@@ -963,8 +1013,25 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
       const fp = map.get(key)
       if (fs.existsSync(fp)) return fp
     }
+    // 精确子串匹配
     for (const [k, v] of map.entries()) {
-      if (k.includes(key) || key.includes(k)) {
+      if (k === key || k.includes(key) || key.includes(k)) {
+        if (fs.existsSync(v)) return v
+      }
+    }
+    // 去除字重后缀后再匹配
+    const withoutWeight = key.replace(/\s+(regular|bold|light|medium|black|thin|extralight|semibold|heavy)$/i, '').trim()
+    if (withoutWeight !== key) {
+      for (const [k, v] of map.entries()) {
+        if (k.includes(withoutWeight) || withoutWeight.includes(k)) {
+          if (fs.existsSync(v)) return v
+        }
+      }
+    }
+    // 按文件名查找（适用于自定义字体如 "851手書き雑"）
+    for (const [k, v] of map.entries()) {
+      const fileName = path.basename(v, path.extname(v)).toLowerCase()
+      if (fileName === key || fileName.includes(key) || key.includes(fileName)) {
         if (fs.existsSync(v)) return v
       }
     }
@@ -974,7 +1041,8 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
   if (process.platform === 'win32') {
     const fontPath = findFontFile(fontFamily)
     if (fontPath) {
-      return pathToFileUrl(fontPath)
+      // 返回自定义协议 URL（IPC 只传字符串，不传大 ArrayBuffer）
+      return 'font-asset://font?path=' + encodeURIComponent(fontPath)
     }
   }
 
@@ -984,6 +1052,40 @@ ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
 
 
 app.whenReady().then(() => {
+  // 注册字体协议处理器（流式传输，支持大文件）
+  protocol.handle('font-asset', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const filePath = decodeURIComponent(url.searchParams.get('path'))
+      if (!fs.existsSync(filePath)) {
+        return new Response('Font not found', { status: 404 })
+      }
+      const stat = fs.statSync(filePath)
+      const ext = path.extname(filePath).toLowerCase()
+      let mimeType = 'font/ttf'
+      if (ext === '.otf') mimeType = 'font/otf'
+      if (ext === '.ttc') mimeType = 'font/ttc'
+      if (ext === '.woff') mimeType = 'font/woff'
+      if (ext === '.woff2') mimeType = 'font/woff2'
+      
+      // 用 ReadableStream 流式传输，支持大文件
+      const fileStream = fs.createReadStream(filePath)
+      const { Readable } = require('stream')
+      const readableStream = Readable.toWeb(fileStream)
+      
+      return new Response(readableStream, {
+        headers: {
+          'Content-Type': mimeType,
+          'Content-Length': stat.size.toString(),
+          'Cache-Control': 'public, max-age=31536000'
+        }
+      })
+    } catch (e) {
+      console.error('font-asset protocol error:', e)
+      return new Response('Font load error: ' + e.message, { status: 500 })
+    }
+  })
+
   Menu.setApplicationMenu(null)
   loadDownloads()
   loadSettings()
