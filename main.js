@@ -194,8 +194,10 @@ function createWindow(options = {}) {
 }
 
 function setupDownloadHandler() {
-  app.on('session-created', (session) => {
+  const handleDownload = (session) => {
     session.on('will-download', async (event, item, webContents) => {
+      console.log('will-download triggered, askForPath:', downloadSettings.askForPath)
+      
       const downloadId = ++downloadIdCounter
       let downloadPath = path.join(downloadSettings.defaultPath, item.getFilename())
       downloadPath = getUniqueFilePath(downloadPath)
@@ -211,9 +213,6 @@ function setupDownloadHandler() {
         savePath: downloadPath
       }
       
-      downloads.unshift(downloadInfo)
-      saveDownloads()
-      
       function sendUpdate() {
         const allWindows = BrowserWindow.getAllWindows()
         allWindows.forEach(win => {
@@ -223,37 +222,43 @@ function setupDownloadHandler() {
           }
         })
       }
-      
-      sendUpdate()
-      
-      const filename = downloadInfo.filename
-      
-      const focusedWindow = BrowserWindow.getFocusedWindow()
-      dialog.showMessageBox(focusedWindow || BrowserWindow.getAllWindows()[0], {
-        type: 'info',
-        title: '下载开始',
-        message: '📥 文件已开始下载',
-        detail: filename,
-        buttons: ['打开下载管理器', '关闭'],
-        defaultId: 0
-      }).then(function(result) {
-        if (result.response === 0) {
-          createWindow({ downloadsPage: true })
-        }
-      }).catch(function(err) {
-        console.error('Failed to show download message:', err);
-      })
-      
+
+      function showDownloadNotification(filename) {
+        const ownerWindow = BrowserWindow.fromWebContents(webContents)
+        const targetWindow = ownerWindow || BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+        if (!targetWindow) return
+        
+        dialog.showMessageBox(targetWindow, {
+          type: 'info',
+          title: '下载开始',
+          message: '📥 文件已开始下载',
+          detail: filename,
+          buttons: ['打开下载管理器', '关闭'],
+          defaultId: 0
+        }).then(function(result) {
+          if (result.response === 0) {
+            createWindow({ downloadsPage: true })
+          }
+        }).catch(function(err) {
+          console.error('Failed to show download message:', err)
+        })
+      }
+
       if (downloadSettings.askForPath) {
+        console.log('askForPath is true, pausing download and showing save dialog')
         item.pause()
         
-        const result = await dialog.showSaveDialog({
+        const ownerWindow = BrowserWindow.fromWebContents(webContents)
+        const result = await dialog.showSaveDialog(ownerWindow || BrowserWindow.getAllWindows()[0], {
           defaultPath: downloadPath,
           filters: [{ name: 'All Files', extensions: ['*'] }]
         })
         
         if (result.canceled) {
+          console.log('Download cancelled by user')
           downloadInfo.state = 'cancelled'
+          downloads.unshift(downloadInfo)
+          saveDownloads()
           sendUpdate()
           return
         }
@@ -263,12 +268,20 @@ function setupDownloadHandler() {
         downloadInfo.savePath = downloadPath
         item.setSavePath(downloadPath)
         item.resume()
+        console.log('Download resumed with path:', downloadPath)
       } else {
+        console.log('askForPath is false, downloading directly to:', downloadPath)
         item.setSavePath(downloadPath)
       }
       
+      downloads.unshift(downloadInfo)
+      saveDownloads()
+      sendUpdate()
+      
       downloadInfo.state = 'downloading'
       sendUpdate()
+      
+      showDownloadNotification(downloadInfo.filename)
       
       item.on('updated', (event, state) => {
         downloadInfo.receivedBytes = item.getReceivedBytes()
@@ -283,13 +296,21 @@ function setupDownloadHandler() {
       })
       
       item.on('done', (event, state) => {
+        console.log('Download done, state:', state)
         downloadInfo.state = state === 'completed' ? 'completed' : 'cancelled'
         
         sendUpdate()
         saveDownloads()
       })
     })
-  })
+  }
+
+  // 注册事件监听，处理后续创建的 session
+  app.on('session-created', handleDownload)
+  
+  // 立即处理默认 session（如果已经创建）
+  const { session } = require('electron')
+  handleDownload(session.defaultSession)
 }
 
 function extractUrls(text) {
