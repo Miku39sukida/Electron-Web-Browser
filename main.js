@@ -723,6 +723,7 @@ function createLyricWindow(ownerWin = null) {
   })
 
   lyricWindow.on('closed', () => {
+    stopLyricBgPush();
     lyricWindow = null
   })
 
@@ -750,6 +751,74 @@ function toggleLyricInteractive() {
 function updateLyricWindow(data) {
   if (lyricWindow && !lyricWindow.isDestroyed()) {
     lyricWindow.webContents.send('lyric-update', { type: 'LYRIC_UPDATE', ...data });
+  }
+}
+
+// ============ 桌面歌词主进程推送（绕过 Chromium 节流） ============
+// Chromium 在窗口最小化/隐藏时会将渲染进程的 setInterval/requestAnimationFrame
+// 节流到 1Hz，即使设置了 backgroundThrottling: false 也无效（且 visibilitychange
+// 也不会触发）。解决方案：主进程 Node.js 定时器始终推送，不受节流影响。
+// 渲染端通过 rAF 定期同步音频时间，主进程用墙钟时间插值估算当前位置。
+let cachedLyricLines = [];
+let cachedLoopStartS = 0;
+let cachedLoopDurS = 0;
+let syncedAudioTime = 0;        // 渲染端最近同步的音频时间
+let syncedWallClock = 0;        // 渲染端最近同步的墙钟时间
+let prevEstimatedTime = 0;      // 上次估算的音频时间（用于检测循环回绕）
+let lyricBgPushTimer = null;
+let lastPushedIdx = 0;          // 上次推送的歌词行索引（用于优化搜索）
+
+function startLyricBgPush() {
+  if (lyricBgPushTimer) return;
+
+  // Node.js setInterval 完全不受 Chromium 节流，16ms ≈ 60fps
+  lyricBgPushTimer = setInterval(() => {
+    if (!lyricWindow || lyricWindow.isDestroyed()) return;
+    if (cachedLyricLines.length === 0) return;
+    if (syncedWallClock === 0) return; // 还未收到渲染端同步
+
+    // 用墙钟时间估算当前音频位置（音频时钟与墙钟同步推进）
+    const now = Date.now();
+    let estimatedTime = syncedAudioTime + (now - syncedWallClock) / 1000;
+
+    // 处理循环回绕（与渲染端 currentPlaySec 逻辑一致）
+    if (cachedLoopDurS > 0 && estimatedTime >= cachedLoopStartS) {
+      const into = (estimatedTime - cachedLoopStartS) % cachedLoopDurS;
+      estimatedTime = cachedLoopStartS + into;
+    }
+
+    // 检测循环回绕：如果时间往回跳，从头搜索歌词行
+    let startIdx = 0;
+    if (estimatedTime >= prevEstimatedTime) {
+      // 时间前进：从上次位置继续搜索（需要记录上次 idx）
+      startIdx = lastPushedIdx;
+    }
+    prevEstimatedTime = estimatedTime;
+
+    let idx = startIdx;
+    while (idx < cachedLyricLines.length - 1 && cachedLyricLines[idx + 1].time_sec <= estimatedTime) {
+      idx++;
+    }
+    lastPushedIdx = idx;
+
+    const line = cachedLyricLines[idx] || cachedLyricLines[0];
+    const nextLine = cachedLyricLines[idx + 1];
+
+    lyricWindow.webContents.send('lyric-update', {
+      type: 'LYRIC_UPDATE',
+      text: line.text || '',
+      translation: line.translation || '',
+      karaoke: line.karaoke || [],
+      lineEndTime: nextLine ? nextLine.time_sec : null,
+      currentTime: estimatedTime
+    });
+  }, 16);
+}
+
+function stopLyricBgPush() {
+  if (lyricBgPushTimer) {
+    clearInterval(lyricBgPushTimer);
+    lyricBgPushTimer = null;
   }
 }
 
@@ -823,6 +892,46 @@ ipcMain.handle('close-desktop-lyric', () => {
 
 ipcMain.handle('update-desktop-lyric', (event, data) => {
   updateLyricWindow(data)
+})
+
+// 缓存歌词数据（渲染端在歌词/循环参数变化时同步到主进程）
+// 当有歌词数据时自动启动主进程推送；无数据时自动停止
+ipcMain.handle('cache-lyric-data', (event, data) => {
+  cachedLyricLines = data.lines || [];
+  cachedLoopStartS = data.loopStartS || 0;
+  cachedLoopDurS = data.loopDurS || 0;
+  if (cachedLyricLines.length > 0) {
+    startLyricBgPush();
+  } else {
+    stopLyricBgPush();
+  }
+})
+
+// 接收渲染端音频时间同步（渲染端在 rAF 回调中频繁调用）
+// 主进程用此值 + 墙钟时间插值估算当前音频位置，即使渲染端被节流也能保持准确
+ipcMain.handle('sync-playback-state', (event, data) => {
+  syncedAudioTime = data.audioTime || 0;
+  syncedWallClock = data.wallClock || Date.now();
+})
+
+// 清空桌面歌词并停止推送（停止播放时调用）
+ipcMain.handle('clear-desktop-lyric', () => {
+  stopLyricBgPush();
+  cachedLyricLines = [];
+  syncedAudioTime = 0;
+  syncedWallClock = 0;
+  prevEstimatedTime = 0;
+  lastPushedIdx = 0;
+  if (lyricWindow && !lyricWindow.isDestroyed()) {
+    lyricWindow.webContents.send('lyric-update', {
+      type: 'LYRIC_UPDATE',
+      text: '',
+      translation: '',
+      karaoke: [],
+      lineEndTime: null,
+      currentTime: 0
+    });
+  }
 })
 
 ipcMain.handle('toggle-lyric-interactive', (event, interactive) => {
@@ -1101,6 +1210,7 @@ app.whenReady().then(() => {
 })
 
 app.on('before-quit', () => {
+  stopLyricBgPush();
   if (lyricWindow && !lyricWindow.isDestroyed()) {
     lyricWindow.close()
   }

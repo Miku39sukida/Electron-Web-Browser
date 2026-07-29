@@ -1,9 +1,8 @@
 # 🖥️ Electron Web Browser
 
 基于 Electron 框架的轻量网页浏览器，集成桌面悬浮歌词功能，专为配合 [无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer) 使用而设计。
-
-> 版本：**1.2**  
-> License：MIT  
+> 版本：**1.3**
+> License：MIT
 > 配合使用：[无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer)
 
 ---
@@ -121,6 +120,12 @@ Electron-Web-Browser/
 ---
 
 ## 📋 更新日志
+
+### v1.3
+- **桌面歌词零延迟推送**：主进程 Node.js `setInterval(16ms)` 始终以 60fps 推送桌面歌词，渲染端通过 rAF 每帧同步音频时间 `{audioTime, wallClock}`，主进程用墙钟时间插值估算当前音频位置；窗口最小化时主进程继续推送，彻底绕过 Chromium 对渲染进程定时器的节流（`backgroundThrottling: false` 无法阻止节流，且会导致 `visibilitychange` 不触发）
+- **移除 visibilitychange 依赖**：不再依赖 `visibilitychange` 事件切换推送模式（Electron 文档明确 `backgroundThrottling: false` 时 Page Visibility API 不报告隐藏状态），改为 `cache-lyric-data` IPC 有歌词时自动启动主进程推送、无歌词时自动停止
+- **移除渲染端直接推送**：渲染端 `setLyricText` 不再发送 `updateDesktopLyric`，桌面歌词完全由主进程统一驱动，避免双源冲突
+- **停止播放清空歌词**：新增 `clear-desktop-lyric` IPC，停止播放时自动清空桌面歌词文本并停止后台推送
 
 ### v1.2
 - **大字体加载修复**：改用 ArrayBuffer 直接传递字体数据，Blob URL 作为回退方案，彻底解决 5MB+ 大字体文件（如提瓦特通用文、851手書き雑）加载失败显示默认黑体的问题
