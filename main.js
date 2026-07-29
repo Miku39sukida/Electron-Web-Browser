@@ -21,6 +21,7 @@ let downloadIdCounter = 0
 let downloadSettings = {
   defaultPath: app.getPath('downloads'),
   askForPath: false,
+  searchEngine: 'google',
   lyricWindowPosition: { x: 0, y: 100 },
   lyricWindowSize: { width: 600, height: 150 },
   lyricSettings: {
@@ -687,6 +688,16 @@ ipcMain.handle('set-download-settings', (event, settings) => {
   downloadSettings = { ...downloadSettings, ...settings }
   saveSettings()
   return downloadSettings
+})
+
+ipcMain.handle('get-search-engine', () => {
+  return downloadSettings.searchEngine || 'google'
+})
+
+ipcMain.handle('set-search-engine', (event, engine) => {
+  downloadSettings.searchEngine = engine
+  saveSettings()
+  return downloadSettings.searchEngine
 })
 
 let mainWindow = null
