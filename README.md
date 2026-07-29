@@ -125,6 +125,7 @@ Electron-Web-Browser/
 ### v1.4
 - **网站图标支持**：自动加载网页 favicon 作为 Electron 窗口图标，打开 B站、百度等网站时窗口图标自动更新为对应网站品牌图标
 - **Favicon 下载优化**：使用 Electron 原生 `net.fetch()` 下载 favicon，保存为临时文件后通过 `nativeImage.createFromPath()` 加载，兼容 Windows 系统图标格式
+- **搜索建议功能**：主页搜索框新增实时搜索建议，调用百度 sugrec API 获取关键词联想词，支持键盘导航（↑↓选择、Enter确认、Escape关闭），关键词高亮显示，300ms 防抖避免过快请求
 
 ### v1.3
 - **桌面歌词零延迟推送**：主进程 Node.js `setInterval(16ms)` 始终以 60fps 推送桌面歌词，渲染端通过 rAF 每帧同步音频时间 `{audioTime, wallClock}`，主进程用墙钟时间插值估算当前音频位置；窗口最小化时主进程继续推送，彻底绕过 Chromium 对渲染进程定时器的节流（`backgroundThrottling: false` 无法阻止节流，且会导致 `visibilitychange` 不触发）

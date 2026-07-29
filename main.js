@@ -1155,6 +1155,26 @@ function buildFontFileMap() {
   return fontFileMap
 }
 
+ipcMain.handle('get-search-suggestions', async (_, keyword) => {
+  if (!keyword || keyword.trim().length === 0) {
+    return []
+  }
+  try {
+    const { net } = require('electron')
+    const encodedKeyword = encodeURIComponent(keyword.trim())
+    const response = await net.fetch(`https://www.baidu.com/sugrec?ie=utf-8&json=1&prod=pc&wd=${encodedKeyword}`)
+    const text = await response.text()
+    const data = JSON.parse(text)
+    if (data.g && Array.isArray(data.g)) {
+      return data.g.map(item => item.q).filter(q => q)
+    }
+    return []
+  } catch (err) {
+    console.error('Failed to get search suggestions:', err.message)
+    return []
+  }
+})
+
 ipcMain.handle('get-font-data-url', async (_, fontFamily) => {
   const fs = require('fs')
   const path = require('path')

@@ -400,6 +400,46 @@
       color: #c44569;
       font-weight: bold;
     }
+
+    .suggestions-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      margin-top: 4px;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+      border: 2px solid #ffb6c1;
+      padding: 8px 0;
+      display: none;
+      z-index: 200;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+
+    .suggestions-dropdown.active {
+      display: block;
+      animation: slideDown 0.15s ease-out;
+    }
+
+    .suggestion-item {
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: background 0.15s;
+      color: #c44569;
+      font-size: 14px;
+    }
+
+    .suggestion-item:hover,
+    .suggestion-item.active {
+      background: rgba(255, 182, 193, 0.3);
+    }
+
+    .suggestion-item .keyword-highlight {
+      color: #ff6b9d;
+      font-weight: bold;
+    }
   </style>
 </head>
 <body>
@@ -420,10 +460,11 @@
           </div>
           <div class="search-divider"></div>
           <div class="search-input-wrapper">
-            <input type="text" id="searchInput" placeholder="输入并搜索..." />
+            <input type="text" id="searchInput" placeholder="输入并搜索..." autocomplete="off" />
           </div>
           <button class="search-btn" onclick="doSearch()">搜索</button>
         </div>
+        <div class="suggestions-dropdown" id="suggestionsDropdown"></div>
         <div class="engine-dropdown" id="engineDropdown">
           <div class="engine-grid">
             <div class="engine-item active" id="engineGoogle" onclick="selectEngine('google')">
@@ -615,6 +656,115 @@
     document.getElementById('searchInput').addEventListener('keypress', function(e) {
       if (e.key === 'Enter') {
         doSearch()
+      }
+    })
+
+    // 搜索建议功能
+    let suggestionTimer = null
+    let currentSuggestionIndex = -1
+    let currentSuggestions = []
+
+    function debounceSearchSuggestions(func, delay) {
+      let timer
+      return function(...args) {
+        clearTimeout(timer)
+        timer = setTimeout(() => func.apply(this, args), delay)
+      }
+    }
+
+    async function fetchSuggestions(keyword) {
+      if (!keyword || keyword.trim().length === 0) {
+        hideSuggestions()
+        return
+      }
+      try {
+        const suggestions = await window.electronAPI.getSearchSuggestions(keyword)
+        if (suggestions && suggestions.length > 0) {
+          showSuggestions(keyword, suggestions)
+        } else {
+          hideSuggestions()
+        }
+      } catch (err) {
+        console.error('Failed to get suggestions:', err)
+        hideSuggestions()
+      }
+    }
+
+    function showSuggestions(keyword, suggestions) {
+      currentSuggestions = suggestions
+      currentSuggestionIndex = -1
+      const dropdown = document.getElementById('suggestionsDropdown')
+      const input = document.getElementById('searchInput')
+      
+      dropdown.innerHTML = suggestions.map((s, i) => {
+        const highlighted = s.replace(
+          new RegExp(`(${keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+          '<span class="keyword-highlight">$1</span>'
+        )
+        return `<div class="suggestion-item" data-index="${i}" onclick="selectSuggestion(${i})">${highlighted}</div>`
+      }).join('')
+      
+      dropdown.classList.add('active')
+    }
+
+    function hideSuggestions() {
+      currentSuggestions = []
+      currentSuggestionIndex = -1
+      const dropdown = document.getElementById('suggestionsDropdown')
+      dropdown.classList.remove('active')
+    }
+
+    function selectSuggestion(index) {
+      if (index >= 0 && index < currentSuggestions.length) {
+        document.getElementById('searchInput').value = currentSuggestions[index]
+        hideSuggestions()
+        doSearch()
+      }
+    }
+
+    const debouncedFetchSuggestions = debounceSearchSuggestions(fetchSuggestions, 300)
+
+    document.getElementById('searchInput').addEventListener('input', function(e) {
+      const value = e.target.value.trim()
+      if (value.length === 0) {
+        hideSuggestions()
+      } else {
+        debouncedFetchSuggestions(value)
+      }
+    })
+
+    document.getElementById('searchInput').addEventListener('keydown', function(e) {
+      const items = document.querySelectorAll('.suggestion-item')
+      
+      if (e.key === 'ArrowDown' && currentSuggestions.length > 0) {
+        e.preventDefault()
+        currentSuggestionIndex = (currentSuggestionIndex + 1) % currentSuggestions.length
+        updateActiveSuggestion(items)
+      } else if (e.key === 'ArrowUp' && currentSuggestions.length > 0) {
+        e.preventDefault()
+        currentSuggestionIndex = currentSuggestionIndex <= 0 
+          ? currentSuggestions.length - 1 
+          : currentSuggestionIndex - 1
+        updateActiveSuggestion(items)
+      } else if (e.key === 'Enter' && currentSuggestionIndex >= 0) {
+        e.preventDefault()
+        selectSuggestion(currentSuggestionIndex)
+      } else if (e.key === 'Escape') {
+        hideSuggestions()
+      }
+    })
+
+    function updateActiveSuggestion(items) {
+      items.forEach(item => item.classList.remove('active'))
+      if (currentSuggestionIndex >= 0 && items[currentSuggestionIndex]) {
+        items[currentSuggestionIndex].classList.add('active')
+      }
+    }
+
+    document.addEventListener('click', function(e) {
+      const searchWrapper = document.querySelector('.search-box-wrapper')
+      if (!searchWrapper.contains(e.target)) {
+        hideSuggestions()
       }
     })
 

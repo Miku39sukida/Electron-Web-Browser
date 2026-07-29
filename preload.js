@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openLyricSettings: () => ipcRenderer.invoke('open-lyric-settings'),
   getLyricSettings: () => ipcRenderer.invoke('get-lyric-settings'),
   saveLyricSettings: (settings) => ipcRenderer.invoke('save-lyric-settings', settings),
+  getSearchSuggestions: (keyword) => ipcRenderer.invoke('get-search-suggestions', keyword),
   getSystemFonts: () => ipcRenderer.invoke('get-system-fonts'),
   getFontDataUrl: (fontFamily) => ipcRenderer.invoke('get-font-data-url', fontFamily),
   isElectron: () => true,
