@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+<!-- 如需添加常用网站，请到457行添加 -->
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -453,6 +454,7 @@
     <div class="websites-section">
       <h2>💕 常用网站 💕</h2>
       <div class="websites-grid">
+        <!-- 在此添加常用网站 -->
         <div class="website-card" onclick="openSite('https://space.bilibili.com/592777997')">
           <div class="website-icon"><img src="https://www.bilibili.com/favicon.ico" alt="B站个人空间" /></div>
           <div class="website-name">B站个人空间</div>
@@ -487,6 +489,11 @@
           <div class="website-icon"><img src="icon/bpmtest.png" alt="BPM测试" /></div>
           <div class="website-name">BPM测试</div>
           <div class="website-url">bpmtest</div>
+        </div>
+          <div class="website-card" onclick="openSite('https://github.com')">
+          <div class="website-icon"><img src="icon/github.ico" alt="GitHub" /></div>
+          <div class="website-name">GitHub</div>
+          <div class="website-url">github.com</div>
         </div>
       </div>
     </div>
@@ -534,12 +541,24 @@
 
     let currentEngine = 'google'
 
+    async function initSearchEngine() {
+      try {
+        const savedEngine = await window.electronAPI.getSearchEngine()
+        if (savedEngine) {
+          currentEngine = savedEngine
+          selectEngine(savedEngine)
+        }
+      } catch (err) {
+        console.error('Failed to load search engine:', err)
+      }
+    }
+
     function toggleEngineDropdown() {
       const dropdown = document.getElementById('engineDropdown')
       dropdown.classList.toggle('active')
     }
 
-    function selectEngine(engine) {
+    async function selectEngine(engine) {
       currentEngine = engine
       document.querySelectorAll('.engine-item').forEach(item => {
         item.classList.remove('active')
@@ -556,6 +575,12 @@
       document.getElementById('currentEngineIcon').src = iconMap[engine]
       
       document.getElementById('engineDropdown').classList.remove('active')
+      
+      try {
+        await window.electronAPI.setSearchEngine(engine)
+      } catch (err) {
+        console.error('Failed to save search engine:', err)
+      }
     }
 
     async function doSearch() {
@@ -599,6 +624,10 @@
       if (!dropdown.contains(e.target) && !selector.contains(e.target)) {
         dropdown.classList.remove('active')
       }
+    })
+
+    document.addEventListener('DOMContentLoaded', function() {
+      initSearchEngine()
     })
   </script>
 </body>

@@ -1,6 +1,8 @@
-const { app, BrowserWindow, ipcMain, Menu, MenuItem, globalShortcut, dialog, shell, protocol } = require('electron')
+const { app, BrowserWindow, ipcMain, Menu, MenuItem, globalShortcut, dialog, shell, protocol, nativeImage } = require('electron')
 const path = require('path')
 const fs = require('fs')
+const https = require('https')
+const http = require('http')
 
 // 注册自定义字体协议（必须在 app.whenReady 之前）
 protocol.registerSchemesAsPrivileged([{
@@ -117,6 +119,48 @@ function createWindow(options = {}) {
     },
     autoHideMenuBar: true,
     ...options
+  })
+
+  const updateFaviconFromUrl = async (faviconUrl) => {
+    if (!faviconUrl) return
+    try {
+      const { net } = require('electron')
+      const response = await net.fetch(faviconUrl)
+      const buffer = Buffer.from(await response.arrayBuffer())
+      console.log('Favicon buffer size:', buffer.length)
+      
+      const tempPath = path.join(app.getPath('temp'), 'favicon_' + Date.now() + '.ico')
+      fs.writeFileSync(tempPath, buffer)
+      
+      const img = nativeImage.createFromPath(tempPath)
+      console.log('Image from path size:', img.getSize(), 'isEmpty:', img.isEmpty())
+      
+      if (!img.isEmpty()) {
+        win.setIcon(img)
+        console.log('Window icon set successfully')
+      } else {
+        console.log('Image from path is empty, trying Buffer')
+        const img2 = nativeImage.createFromBuffer(buffer)
+        console.log('Image from buffer size:', img2.getSize(), 'isEmpty:', img2.isEmpty())
+        if (!img2.isEmpty()) {
+          win.setIcon(img2)
+          console.log('Window icon set with buffer method')
+        }
+      }
+      
+      setTimeout(() => {
+        try { fs.unlinkSync(tempPath) } catch (e) {}
+      }, 10000)
+    } catch (err) {
+      console.error('Failed to set window icon:', err.message)
+    }
+  }
+
+  win.webContents.on('page-favicon-updated', (event, favicons) => {
+    console.log('page-favicon-updated triggered with', favicons.length, 'favicons')
+    if (favicons && favicons.length > 0) {
+      updateFaviconFromUrl(favicons[0])
+    }
   })
 
   if (options.url) {

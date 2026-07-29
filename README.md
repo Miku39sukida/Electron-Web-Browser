@@ -1,7 +1,7 @@
 # 🖥️ Electron Web Browser
 
 基于 Electron 框架的轻量网页浏览器，集成桌面悬浮歌词功能，专为配合 [无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer) 使用而设计。
-> 版本：**1.3**
+> 版本：**1.4**
 > License：MIT
 > 配合使用：[无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer)
 
@@ -14,6 +14,7 @@
 - **多标签页**：支持打开多个网页
 - **下载管理**：内置下载管理器，支持断点续传
 - **全屏模式**：F11 切换全屏
+- **网站图标**：自动加载网页 favicon 作为窗口图标，每个网站显示对应品牌图标
 
 ### 🎤 桌面悬浮歌词
 - **透明置顶窗口**：无边框、透明背景、始终置顶显示
@@ -120,6 +121,10 @@ Electron-Web-Browser/
 ---
 
 ## 📋 更新日志
+
+### v1.4
+- **网站图标支持**：自动加载网页 favicon 作为 Electron 窗口图标，打开 B站、百度等网站时窗口图标自动更新为对应网站品牌图标
+- **Favicon 下载优化**：使用 Electron 原生 `net.fetch()` 下载 favicon，保存为临时文件后通过 `nativeImage.createFromPath()` 加载，兼容 Windows 系统图标格式
 
 ### v1.3
 - **桌面歌词零延迟推送**：主进程 Node.js `setInterval(16ms)` 始终以 60fps 推送桌面歌词，渲染端通过 rAF 每帧同步音频时间 `{audioTime, wallClock}`，主进程用墙钟时间插值估算当前音频位置；窗口最小化时主进程继续推送，彻底绕过 Chromium 对渲染进程定时器的节流（`backgroundThrottling: false` 无法阻止节流，且会导致 `visibilitychange` 不触发）
