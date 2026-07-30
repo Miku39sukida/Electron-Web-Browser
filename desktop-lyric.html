@@ -533,13 +533,13 @@
 
             if (fallbackUrl && fallbackFamily !== fontFamily) {
                 try {
-                    const fallbackWeight = inferFontWeight(fallbackFamily);
-                    console.log('[Font] Loading fallback font: ' + fallbackFamily + ' with weight ' + fallbackWeight);
+                    // 回退字体与主字体使用相同字重注册，确保浏览器回退时
+                    // 能精确匹配字重，不会合成加粗效果
+                    const fallbackWeight = primaryLoaded ? primaryWeight : '400';
                     const actualFallbackWeight = await loadFontFaceFromUrl(customFallbackName, fallbackUrl, fallbackWeight);
-                    console.log('[Font] Fallback font "' + fallbackFamily + '" loaded, weight=' + actualFallbackWeight);
-                    // 仅当主字体加载失败时，才使用回退字体的字重
+                    console.log('[Font] Fallback font "' + fallbackFamily + '" loaded with weight ' + fallbackWeight);
                     if (!primaryLoaded) {
-                        primaryWeight = actualFallbackWeight;
+                        primaryWeight = '400';
                     }
                 } catch (e) {
                     console.error('[Font] Fallback font "' + fallbackFamily + '" failed:', e);

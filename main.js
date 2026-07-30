@@ -784,6 +784,12 @@ function createLyricWindow(ownerWin = null) {
 
   lyricWindow.webContents.on('ready-to-show', () => {
     lyricWindow.setIgnoreMouseEvents(true)
+    // 窗口显示时也尝试恢复歌词推送（兜底保障）
+    if (cachedLyricLines.length > 0) {
+      prevEstimatedTime = 0;
+      lastPushedIdx = 0;
+      startLyricBgPush();
+    }
   })
 
   lyricWindow.webContents.on('did-finish-load', () => {
@@ -795,6 +801,17 @@ function createLyricWindow(ownerWin = null) {
           lyricWindow.webContents.send('lyric-settings-change', downloadSettings.lyricSettings)
         }
       }, 500)
+
+      // 窗口重新打开后恢复歌词推送（如果有缓存的歌词数据）
+      // 关闭窗口时 stopLyricBgPush() 会清空推送定时器，
+      // 但缓存的歌词数据（cachedLyricLines）仍然保留
+      // 重新打开时需要恢复推送，否则歌词不会显示
+      if (cachedLyricLines.length > 0) {
+        // 重置推送状态，避免旧的索引导致歌词跳跃
+        prevEstimatedTime = 0;
+        lastPushedIdx = 0;
+        startLyricBgPush();
+      }
     }
   })
 
