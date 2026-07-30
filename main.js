@@ -837,6 +837,7 @@ function updateLyricWindow(data) {
 // 渲染端通过 rAF 定期同步音频时间，主进程用墙钟时间插值估算当前位置。
 let cachedLyricLines = [];
 let cachedLoopStartS = 0;
+let cachedLoopEndS = 0;
 let cachedLoopDurS = 0;
 let syncedAudioTime = 0;        // 渲染端最近同步的音频时间
 let syncedWallClock = 0;        // 渲染端最近同步的墙钟时间
@@ -975,6 +976,7 @@ ipcMain.handle('update-desktop-lyric', (event, data) => {
 ipcMain.handle('cache-lyric-data', (event, data) => {
   cachedLyricLines = data.lines || [];
   cachedLoopStartS = data.loopStartS || 0;
+  cachedLoopEndS = data.loopEndS || 0;
   cachedLoopDurS = data.loopDurS || 0;
   if (cachedLyricLines.length > 0) {
     startLyricBgPush();

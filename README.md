@@ -123,6 +123,9 @@ Electron-Web-Browser/
 ## 📋 更新日志
 
 ### v1.4
+- **桌面歌词主进程后台推送优化**：主进程 60fps 推送逻辑增加 `loopEndS` 参数缓存，与渲染端歌词结束拍设置同步，确保窗口最小化时歌词位置估算与前台一致
+
+### v1.3
 - **网站图标支持**：自动加载网页 favicon 作为 Electron 窗口图标，打开 B站、百度等网站时窗口图标自动更新为对应网站品牌图标
 - **Favicon 下载优化**：使用 Electron 原生 `net.fetch()` 下载 favicon，保存为临时文件后通过 `nativeImage.createFromPath()` 加载，兼容 Windows 系统图标格式
 - **搜索建议功能**：主页搜索框新增实时搜索建议，调用百度 sugrec API 获取关键词联想词，支持键盘导航（↑↓选择、Enter确认、Escape关闭），关键词高亮显示，300ms 防抖避免过快请求
