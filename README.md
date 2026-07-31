@@ -1,8 +1,8 @@
 # 🖥️ Electron Web Browser
 
 基于 Electron 框架的轻量网页浏览器，集成桌面悬浮歌词功能，专为配合 [无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer) 使用而设计。
-> 版本：**1.4**
-> License：MIT
+> 版本：**1.4**  
+> License：MIT  
 > 配合使用：[无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer)
 
 ---
