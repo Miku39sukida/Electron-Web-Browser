@@ -192,7 +192,7 @@
         <h2 style="text-align: center; margin-bottom: 20px; color: #66CCFF;">桌面歌词设置</h2>
         
         <div class="setting-item">
-            <label class="setting-label">文字颜色</label>
+            <label class="setting-label">已唱文字颜色（高亮色）</label>
             <div class="color-picker-wrapper">
                 <input type="color" id="textColorPicker" class="color-input">
                 <div class="color-preview" id="textColorPreview">预览</div>
@@ -200,10 +200,26 @@
         </div>
         
         <div class="setting-item">
-            <label class="setting-label">描边颜色</label>
+            <label class="setting-label">已唱描边颜色</label>
             <div class="color-picker-wrapper">
-                <input type="color" id="strokeColorPicker" class="color-input">
-                <div class="color-preview" id="strokeColorPreview">预览</div>
+                <input type="color" id="highlightStrokeColorPicker" class="color-input">
+                <div class="color-preview" id="highlightStrokeColorPreview">预览</div>
+            </div>
+        </div>
+        
+        <div class="setting-item">
+            <label class="setting-label">未唱文字颜色</label>
+            <div class="color-picker-wrapper">
+                <input type="color" id="restColorPicker" class="color-input">
+                <div class="color-preview" id="restColorPreview">预览</div>
+            </div>
+        </div>
+        
+        <div class="setting-item">
+            <label class="setting-label">未唱描边颜色</label>
+            <div class="color-picker-wrapper">
+                <input type="color" id="restStrokeColorPicker" class="color-input">
+                <div class="color-preview" id="restStrokeColorPreview">预览</div>
             </div>
         </div>
         
@@ -251,8 +267,12 @@
     <script>
         const textColorPicker = document.getElementById('textColorPicker');
         const textColorPreview = document.getElementById('textColorPreview');
-        const strokeColorPicker = document.getElementById('strokeColorPicker');
-        const strokeColorPreview = document.getElementById('strokeColorPreview');
+        const highlightStrokeColorPicker = document.getElementById('highlightStrokeColorPicker');
+        const highlightStrokeColorPreview = document.getElementById('highlightStrokeColorPreview');
+        const restColorPicker = document.getElementById('restColorPicker');
+        const restColorPreview = document.getElementById('restColorPreview');
+        const restStrokeColorPicker = document.getElementById('restStrokeColorPicker');
+        const restStrokeColorPreview = document.getElementById('restStrokeColorPreview');
         const fontSizeInput = document.getElementById('fontSizeInput');
         const fontFamilyOptions = document.getElementById('fontFamilyOptions');
         const fontSearchInput = document.getElementById('fontSearchInput');
@@ -264,7 +284,9 @@
 
         let currentSettings = {
             textColor: '#ffffff',
-            strokeColor: '#000000',
+            highlightStrokeColor: '#000000',
+            restColor: '#999999',
+            restStrokeColor: '#000000',
             fontSize: 28,
             fontFamily: 'Microsoft YaHei',
             fontFallback: 'Microsoft YaHei',
@@ -383,27 +405,48 @@
         }
         
         function updateUI() {
+            const hlStroke = currentSettings.highlightStrokeColor || '#000000';
+            const restStroke = currentSettings.restStrokeColor || '#000000';
+            const s = 1.5;
+            const makeShadow = (c) => `
+                -${s}px -${s}px 0 ${c},
+                ${s}px -${s}px 0 ${c},
+                -${s}px ${s}px 0 ${c},
+                ${s}px ${s}px 0 ${c},
+                0 -${s}px 0 ${c},
+                0 ${s}px 0 ${c},
+                -${s}px 0 0 ${c},
+                ${s}px 0 0 ${c}
+            `;
+
+            // 已唱文字颜色
             textColorPicker.value = currentSettings.textColor;
             textColorPreview.style.color = currentSettings.textColor;
-            const strokeColor = currentSettings.strokeColor || '#000000';
-            const s = 1.5;
-            textColorPreview.style.textShadow = `
-                -${s}px -${s}px 0 ${strokeColor},
-                ${s}px -${s}px 0 ${strokeColor},
-                -${s}px ${s}px 0 ${strokeColor},
-                ${s}px ${s}px 0 ${strokeColor},
-                0 -${s}px 0 ${strokeColor},
-                0 ${s}px 0 ${strokeColor},
-                -${s}px 0 0 ${strokeColor},
-                ${s}px 0 0 ${strokeColor}
-            `;
+            textColorPreview.style.textShadow = makeShadow(hlStroke);
             textColorPreview.style.webkitTextStroke = '0';
-            textColorPreview.textContent = currentSettings.textColor;
-            
-            strokeColorPicker.value = currentSettings.strokeColor || '#000000';
-            strokeColorPreview.style.background = currentSettings.strokeColor || '#000000';
-            strokeColorPreview.style.color = getContrastColor(currentSettings.strokeColor || '#000000');
-            strokeColorPreview.textContent = currentSettings.strokeColor || '#000000';
+            textColorPreview.textContent = currentSettings.textColor + '（已唱填充）';
+
+            // 已唱描边颜色
+            highlightStrokeColorPicker.value = hlStroke;
+            highlightStrokeColorPreview.style.color = hlStroke;
+            highlightStrokeColorPreview.style.textShadow = makeShadow(hlStroke);
+            highlightStrokeColorPreview.style.webkitTextStroke = '0';
+            highlightStrokeColorPreview.textContent = hlStroke + '（已唱描边）';
+
+            // 未唱文字颜色
+            const restColor = currentSettings.restColor || '#999999';
+            restColorPicker.value = restColor;
+            restColorPreview.style.color = restColor;
+            restColorPreview.style.textShadow = makeShadow(restStroke);
+            restColorPreview.style.webkitTextStroke = '0';
+            restColorPreview.textContent = restColor + '（未唱填充）';
+
+            // 未唱描边颜色
+            restStrokeColorPicker.value = restStroke;
+            restStrokeColorPreview.style.color = restStroke;
+            restStrokeColorPreview.style.textShadow = makeShadow(restStroke);
+            restStrokeColorPreview.style.webkitTextStroke = '0';
+            restStrokeColorPreview.textContent = restStroke + '（未唱描边）';
             
             fontSizeInput.value = currentSettings.fontSize;
             
@@ -442,9 +485,19 @@
             currentSettings.textColor = e.target.value;
             updateUI();
         });
-        
-        strokeColorPicker.addEventListener('input', (e) => {
-            currentSettings.strokeColor = e.target.value;
+
+        highlightStrokeColorPicker.addEventListener('input', (e) => {
+            currentSettings.highlightStrokeColor = e.target.value;
+            updateUI();
+        });
+
+        restColorPicker.addEventListener('input', (e) => {
+            currentSettings.restColor = e.target.value;
+            updateUI();
+        });
+
+        restStrokeColorPicker.addEventListener('input', (e) => {
+            currentSettings.restStrokeColor = e.target.value;
             updateUI();
         });
         
@@ -484,7 +537,9 @@
         resetBtn.addEventListener('click', () => {
             currentSettings = {
                 textColor: '#ffffff',
-                strokeColor: '#000000',
+                highlightStrokeColor: '#000000',
+                restColor: '#999999',
+                restStrokeColor: '#000000',
                 fontSize: 28,
                 fontFamily: 'Microsoft YaHei',
                 fontFallback: 'Microsoft YaHei',

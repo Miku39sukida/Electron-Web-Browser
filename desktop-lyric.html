@@ -18,6 +18,12 @@
             font-family: 'Microsoft YaHei', sans-serif;
             color: #fff;
             -webkit-text-stroke: 0;
+            /* 卡拉OK 颜色变量 —— 已唱/未唱 文字色 + 描边色 独立配置 */
+            --highlight-color: #ffffff;
+            --highlight-stroke-color: #000000;
+            --rest-color: rgba(180, 180, 180, 0.55);
+            --rest-stroke-color: #000000;
+            /* 非卡拉OK模式的默认描边（由 applySettingsWithoutFont 动态写入） */
             text-shadow:
                 -1.5px -1.5px 0 #000,
                 1.5px -1.5px 0 #000,
@@ -58,24 +64,94 @@
         }
         
         .lyric-main.karaoke-mode {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 0;
+            display: inline-block;
+            position: relative;
+            line-height: 1.6;
         }
-        
-        .lyric-karaoke-char {
-            transition: color 0.1s ease;
-            white-space: pre;
+
+        /* ====== 卡拉OK：双层叠加方案 ======
+           底层 .karaoke-rest  —— 未唱文字 + 未唱描边
+           顶层 .karaoke-highlight —— 已唱文字 + 已唱描边，通过 .ks 逐字 clip-path 从左到右裁剪
+           每层独立配置 fill + stroke 颜色，彻底避免 background-clip:text 的兼容问题
+
+           【grid 重叠】两层放在同一 grid cell（grid-area: lyric），layout 完全同步。
+           旧方案用 position:absolute + width:auto，但 absolute 元素用 shrink-to-fit 算法，
+           加上 inline-block (.ks) 序列 + 零宽空格在 inline flow 中换行行为不可靠，
+           导致 highlight 层的换行点与 rest 层不一致 → 位置错位。
+           改用 grid 重叠后：cell 宽度由 rest 内容决定，highlight 强制 100% 宽度，
+           两层在同一容器内 inline flow → 换行点 100% 一致。 */
+        .lyric-main.karaoke-mode .lyric-karaoke-line {
+            display: inline-grid;
+            grid-template-areas: "lyric";
+            /* 关闭 grid 间隙，避免影响 inline flow */
+            grid-gap: 0;
         }
-        
-        .lyric-karaoke-char.done {
-            color: var(--highlight-color, #66CCFF);
+        /* grid item 居中对齐（行内基线） */
+        .lyric-main.karaoke-mode .lyric-karaoke-line > * {
+            grid-area: lyric;
+            align-self: start;
+            justify-self: stretch;
         }
-        
-        .lyric-karaoke-char.active {
-            color: var(--highlight-color, #66CCFF);
-            text-shadow: 0 0 8px var(--highlight-color, #66CCFF);
+
+        .lyric-main.karaoke-mode .karaoke-rest {
+            color: var(--rest-color, rgba(180,180,180,0.55));
+            /* 未唱描边 */
+            text-shadow:
+                -1.5px -1.5px 0 var(--rest-stroke-color, #000),
+                1.5px -1.5px 0 var(--rest-stroke-color, #000),
+                -1.5px 1.5px 0 var(--rest-stroke-color, #000),
+                1.5px 1.5px 0 var(--rest-stroke-color, #000),
+                0 -1.5px 0 var(--rest-stroke-color, #000),
+                0 1.5px 0 var(--rest-stroke-color, #000),
+                -1.5px 0 0 var(--rest-stroke-color, #000),
+                1.5px 0 0 var(--rest-stroke-color, #000);
+            z-index: 1;
+            white-space: pre-wrap;
+        }
+
+        .lyric-main.karaoke-mode .karaoke-highlight {
+            color: var(--highlight-color, #ffffff);
+            /* 已唱描边 + 发光 */
+            text-shadow:
+                -1.5px -1.5px 0 var(--highlight-stroke-color, #000),
+                1.5px -1.5px 0 var(--highlight-stroke-color, #000),
+                -1.5px 1.5px 0 var(--highlight-stroke-color, #000),
+                1.5px 1.5px 0 var(--highlight-stroke-color, #000),
+                0 -1.5px 0 var(--highlight-stroke-color, #000),
+                0 1.5px 0 var(--highlight-stroke-color, #000),
+                -1.5px 0 0 var(--highlight-stroke-color, #000),
+                1.5px 0 0 var(--highlight-stroke-color, #000),
+                0 0 8px var(--highlight-color, #ffffff);
+            /* 关键：width:100% 强制 highlight 宽度 = grid cell 宽度（=rest 宽度），
+               不能再用 position:absolute + width:auto（shrink-to-fit 不可靠）。 */
+            position: relative;  /* grid item 默认不是 positioning context，需显式设置让 z-index 生效 */
+            width: 100%;
+            z-index: 2;
+            white-space: pre-wrap;
+            pointer-events: none;
+        }
+
+        /* ====== 逐字（slot）clip-path ======
+           旧方案在 .karaoke-highlight 整体上用单个 clip-path，文本换行后
+           bounding box 包含多行，裁剪会同时作用于所有行 → 位置错误。
+           新方案：highlight 层内每个字/词包一个 .ks span，每个 span 独立
+           clip-path，天然适配多行换行。--p: 0~100% 控制单字可见区域。
+           关键：
+           1) .karaoke-highlight 用 grid 重叠 + width:100% 强制和 rest 同宽，
+              inline flow 换行点与 rest 100% 一致。
+           2) .ks 之间插入 <wbr>（HTML5 Word Break Opportunity 标签），
+              避免 inline-block 序列被浏览器当作"原子词"整串换行。
+           3) clip-path 用 padding+margin 技巧替代负 inset：
+              旧公式 inset(-3px calc(100%-p-3px) -3px -3px) 在 p=0% 时
+              仍残留 6px 可见条（left -3px + right 100%-3px → -3px~3px）。
+              新方案：padding:0 3px 扩大 border-box 覆盖描边，margin:0 -3px
+              补偿使字符间距不变，clip-path left:0 right:calc(100%-p)
+              → p=0% 时 right=100% 完全不可见，p=100% 时 padding 覆盖描边。 */
+        .lyric-main.karaoke-mode .karaoke-highlight .ks {
+            display: inline-block;
+            padding: 0 3px;
+            margin: 0 -3px;
+            clip-path: inset(-3px calc(100% - var(--p, 0%)) -3px 0);
         }
         
         .lyric-translation {
@@ -96,6 +172,66 @@
         
         .lyric-translation.empty {
             opacity: 0;
+        }
+
+        /* ====== 译文卡拉OK：双层叠加方案（描边 1px，比主歌词更细） ======
+           同样用 grid 重叠 + width:100% 解决换行错位。 */
+        .lyric-translation.karaoke-mode {
+            line-height: 1.5;
+        }
+
+        .lyric-translation.karaoke-mode .lyric-karaoke-line {
+            display: inline-grid;
+            grid-template-areas: "lyric";
+            grid-gap: 0;
+        }
+
+        .lyric-translation.karaoke-mode .lyric-karaoke-line > * {
+            grid-area: lyric;
+            align-self: start;
+            justify-self: stretch;
+        }
+
+        .lyric-translation.karaoke-mode .karaoke-rest {
+            color: var(--rest-color, rgba(180,180,180,0.55));
+            text-shadow:
+                -1px -1px 0 var(--rest-stroke-color, #000),
+                1px -1px 0 var(--rest-stroke-color, #000),
+                -1px 1px 0 var(--rest-stroke-color, #000),
+                1px 1px 0 var(--rest-stroke-color, #000),
+                0 -1px 0 var(--rest-stroke-color, #000),
+                0 1px 0 var(--rest-stroke-color, #000),
+                -1px 0 0 var(--rest-stroke-color, #000),
+                1px 0 0 var(--rest-stroke-color, #000);
+            z-index: 1;
+            white-space: pre-wrap;
+        }
+
+        .lyric-translation.karaoke-mode .karaoke-highlight {
+            color: var(--highlight-color, #ffffff);
+            text-shadow:
+                -1px -1px 0 var(--highlight-stroke-color, #000),
+                1px -1px 0 var(--highlight-stroke-color, #000),
+                -1px 1px 0 var(--highlight-stroke-color, #000),
+                1px 1px 0 var(--highlight-stroke-color, #000),
+                0 -1px 0 var(--highlight-stroke-color, #000),
+                0 1px 0 var(--highlight-stroke-color, #000),
+                -1px 0 0 var(--highlight-stroke-color, #000),
+                1px 0 0 var(--highlight-stroke-color, #000),
+                0 0 6px var(--highlight-color, #ffffff);
+            position: relative;  /* grid item 默认不是 positioning context */
+            width: 100%;
+            z-index: 2;
+            white-space: pre-wrap;
+            pointer-events: none;
+        }
+
+        /* 译文逐字 clip-path（同主歌词原理，padding+margin 覆盖描边） */
+        .lyric-translation.karaoke-mode .karaoke-highlight .ks {
+            display: inline-block;
+            padding: 0 3px;
+            margin: 0 -3px;
+            clip-path: inset(-3px calc(100% - var(--p, 0%)) -3px 0);
         }
         
         .control-ui {
@@ -217,7 +353,9 @@
         
         let lyricSettings = {
             textColor: '#ffffff',
-            strokeColor: '#000000',
+            restColor: '#999999',
+            highlightStrokeColor: '#000000',
+            restStrokeColor: '#000000',
             fontSize: 28,
             fontFamily: 'Microsoft YaHei',
             fontFallback: 'Microsoft YaHei',
@@ -225,10 +363,96 @@
         };
         
         let currentKaraokeSlots = [];
+        let currentTransKaraokeSlots = [];
+        let currentKaraokePixelMap = null;   // { slotStarts, cacheKey } 主歌词像素缓存
+        let currentTransKaraokePixelMap = null;
         let currentPlayTime = 0;
         let animationFrameId = null;
         let lastServerTime = 0;
         let lastServerTimestamp = 0;
+        // 缓存最后一次歌词内容，卡拉OK模式切换时重新渲染结构，避免文字消失/描边色
+        let lastLyricPayload = { text: '', translation: '', karaoke: [], translation_karaoke: [], lineEndTime: null };
+
+        // ============ 像素级测量工具（解决字符宽度差异错位） ============
+        const DL_TEXT_LAYOUT_PROPS = [
+            'fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'fontVariant',
+            'fontStretch', 'fontKerning', 'fontFeatureSettings', 'letterSpacing',
+            'wordSpacing', 'lineHeight', 'textRendering', 'textTransform',
+            'whiteSpace', 'overflowWrap', 'wordBreak'
+        ];
+        const dlMirrorEl = (() => {
+            const el = document.createElement('span');
+            el.style.cssText = 'position:fixed;top:-99999px;left:-99999px;opacity:0;pointer-events:none;' +
+                'white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;' +
+                'visibility:hidden;display:inline-block;max-width:none;';
+            document.body.appendChild(el);
+            return el;
+        })();
+        function _dlCopyTextStyles(dst, src) {
+            const cs = window.getComputedStyle(src);
+            for (const p of DL_TEXT_LAYOUT_PROPS) dst.style[p] = cs[p];
+            // 关键修复：不继承源元素固定宽度，让 inline-block 收缩到内容宽度，
+            // 测量纯 advance width；强制 pre 防止换行干扰。
+            dst.style.width = 'auto';
+            dst.style.maxWidth = 'none';
+            dst.style.whiteSpace = 'pre';
+        }
+        function _dlHash(s) {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+            return h.toString(16);
+        }
+        /**
+         * 测量某个 karaokeLine 元素 + slot 数组的像素边界百分比
+         * @param {HTMLElement} karaokeLineEl .lyric-karaoke-line 元素（.karaoke-rest 也行，因为文本相同）
+         * @param {Array} slots slot 数组
+         */
+        function _dlMeasurePixelMap(karaokeLineEl, slots) {
+            if (!karaokeLineEl || !slots || slots.length === 0) return null;
+            const mirror = dlMirrorEl;
+            _dlCopyTextStyles(mirror, karaokeLineEl);
+            const full = slots.map(s => s.text).join('');
+            mirror.textContent = full;
+            const totalW = mirror.getBoundingClientRect().width;
+            if (totalW <= 0) return null;
+            const slotStarts = new Array(slots.length + 1);
+            slotStarts[0] = 0;
+            let prefix = '';
+            for (let i = 0; i < slots.length; i++) {
+                prefix += slots[i].text;
+                mirror.textContent = prefix;
+                slotStarts[i + 1] = Math.min(100, (mirror.getBoundingClientRect().width / totalW) * 100);
+            }
+            slotStarts[slotStarts.length - 1] = 100;
+            mirror.textContent = '';
+            return slotStarts;
+        }
+        /** 用 slotStarts 数组计算 clip-path 百分比 */
+        function _dlProgressFromPixelMap(slots, slotStarts, playTime) {
+            let i = 0, done = 0;
+            for (i = 0; i < slots.length; i++) {
+                const slot = slots[i];
+                if (playTime < slot.start - 1e-9) { done = slotStarts[i]; break; }
+                if (playTime >= slot.end - 1e-9) continue;
+                const dur = slot.end - slot.start;
+                const partial = dur > 0 ? Math.min(1, Math.max(0, (playTime - slot.start) / dur)) : 0;
+                done = slotStarts[i] + (slotStarts[i + 1] - slotStarts[i]) * partial;
+                return Math.min(100, Math.max(0, done));
+            }
+            if (i >= slots.length) done = slotStarts[slots.length];
+            return Math.min(100, Math.max(0, done));
+        }
+        /** 构建/获取主歌词或译文的缓存像素地图 */
+        function _dlEnsurePixelMap(karaokeLineEl, slots, currentMapRef, fontSigSrc) {
+            if (!slots.length || !karaokeLineEl) { currentMapRef.value = null; return; }
+            const cs = window.getComputedStyle(fontSigSrc || karaokeLineEl);
+            const fontSig = [cs.fontFamily, cs.fontSize, cs.fontWeight, cs.letterSpacing, cs.wordSpacing, cs.lineHeight].join('|');
+            const text = slots.map(s => s.text).join('');
+            const key = _dlHash(text) + '|' + _dlHash(fontSig);
+            if (currentMapRef.value && currentMapRef.value.cacheKey === key) return;
+            const slotStarts = _dlMeasurePixelMap(karaokeLineEl, slots);
+            if (slotStarts) currentMapRef.value = { slotStarts, cacheKey: key };
+        }
         
         function getLocalPlayTime() {
             if (lastServerTimestamp === 0) return currentPlayTime;
@@ -319,7 +543,7 @@
                 cancelAnimationFrame(animationFrameId);
             }
             function update() {
-                if (isKaraokeMode && currentKaraokeSlots.length > 0) {
+                if (isKaraokeMode && (currentKaraokeSlots.length > 0 || currentTransKaraokeSlots.length > 0)) {
                     updateKaraokeDisplay();
                 }
                 animationFrameId = requestAnimationFrame(update);
@@ -337,19 +561,45 @@
         function updateKaraokeDisplay() {
             const playTime = getLocalPlayTime();
             currentPlayTime = playTime;
-            const chars = lyricMain.querySelectorAll('.lyric-karaoke-char');
-            chars.forEach((char, idx) => {
-                const slot = currentKaraokeSlots[idx];
-                if (!slot) return;
-                
-                char.classList.remove('done', 'active');
-                
-                if (playTime >= slot.end) {
-                    char.classList.add('done');
-                } else if (playTime >= slot.start) {
-                    char.classList.add('active');
+
+            // 主歌词进度：逐字（slot）独立计算 clip-path 进度
+            // 每个字/词有自己的 --p 变量（0~100%），天然适配多行换行
+            const hlEl = lyricMain.querySelector('.karaoke-highlight');
+            if (hlEl && currentKaraokeSlots.length > 0) {
+                const ksEls = hlEl.querySelectorAll('.ks');
+                for (let i = 0; i < currentKaraokeSlots.length && i < ksEls.length; i++) {
+                    const slot = currentKaraokeSlots[i];
+                    let p;
+                    if (playTime >= slot.end - 1e-9) {
+                        p = 100;
+                    } else if (playTime < slot.start - 1e-9) {
+                        p = 0;
+                    } else {
+                        const dur = slot.end - slot.start;
+                        p = dur > 0 ? Math.min(100, Math.max(0, ((playTime - slot.start) / dur) * 100)) : 100;
+                    }
+                    ksEls[i].style.setProperty('--p', p.toFixed(2) + '%');
                 }
-            });
+            }
+
+            // 译文字进度：同主歌词，逐字独立计算
+            const transHlEl = lyricTranslation.querySelector('.karaoke-highlight');
+            if (transHlEl && currentTransKaraokeSlots.length > 0) {
+                const transKsEls = transHlEl.querySelectorAll('.ks');
+                for (let i = 0; i < currentTransKaraokeSlots.length && i < transKsEls.length; i++) {
+                    const slot = currentTransKaraokeSlots[i];
+                    let p;
+                    if (playTime >= slot.end - 1e-9) {
+                        p = 100;
+                    } else if (playTime < slot.start - 1e-9) {
+                        p = 0;
+                    } else {
+                        const dur = slot.end - slot.start;
+                        p = dur > 0 ? Math.min(100, Math.max(0, ((playTime - slot.start) / dur) * 100)) : 100;
+                    }
+                    transKsEls[i].style.setProperty('--p', p.toFixed(2) + '%');
+                }
+            }
         }
         
         if (window.electronAPI && window.electronAPI.onLyricUpdate) {
@@ -357,7 +607,15 @@
                 lastServerTime = data.currentTime || 0;
                 lastServerTimestamp = performance.now();
                 currentPlayTime = lastServerTime;
-                updateLyric(data.text, data.translation, data.karaoke || [], data.lineEndTime);
+                // 缓存最后一次歌词内容（用于卡拉OK模式切换时重渲染）
+                lastLyricPayload = {
+                    text: data.text || '',
+                    translation: data.translation || '',
+                    karaoke: data.karaoke || [],
+                    translation_karaoke: data.translation_karaoke || [],
+                    lineEndTime: data.lineEndTime || null
+                };
+                updateLyric(lastLyricPayload.text, lastLyricPayload.translation, lastLyricPayload.karaoke, lastLyricPayload.translation_karaoke, lastLyricPayload.lineEndTime);
             });
         }
         
@@ -509,7 +767,8 @@
                 document.head.appendChild(styleSheet);
             }
 
-            const strokeColor = lyricSettings.strokeColor || '#000000';
+            const highlightStroke = lyricSettings.highlightStrokeColor || '#000000';
+            const restStroke = lyricSettings.restStrokeColor || '#000000';
             const s = 1.5;
             const chain = [];
             let primaryWeight = inferFontWeight(fontFamily);
@@ -553,18 +812,31 @@
 
             chain.push('sans-serif');
 
-            styleSheet.textContent = 
-                '.lyric-karaoke-char.active {' +
+            styleSheet.textContent =
+                // 卡拉OK模式下，额外给 highlight 层加发光（描边已在静态 CSS 中定义，读 CSS 变量）
+                // rest 层的描边也在静态 CSS 中定义
+                '.lyric-main.karaoke-mode .karaoke-highlight {' +
                 'text-shadow:' +
-                '-' + s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
-                s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
-                '-' + s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
-                s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
-                '0 -' + s + 'px 0 ' + strokeColor + ', ' +
-                '0 ' + s + 'px 0 ' + strokeColor + ', ' +
-                '-' + s + 'px 0 0 ' + strokeColor + ', ' +
-                s + 'px 0 0 ' + strokeColor + ', ' +
+                '-' + s + 'px -' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                s + 'px -' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                '-' + s + 'px ' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                s + 'px ' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                '0 -' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                '0 ' + s + 'px 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                '-' + s + 'px 0 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
+                s + 'px 0 0 var(--highlight-stroke-color, ' + highlightStroke + '), ' +
                 '0 0 8px var(--highlight-color, ' + lyricSettings.textColor + ');' +
+                '}' +
+                '.lyric-main.karaoke-mode .karaoke-rest {' +
+                'text-shadow:' +
+                '-' + s + 'px -' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                s + 'px -' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                '-' + s + 'px ' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                s + 'px ' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                '0 -' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                '0 ' + s + 'px 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                '-' + s + 'px 0 0 var(--rest-stroke-color, ' + restStroke + '), ' +
+                s + 'px 0 0 var(--rest-stroke-color, ' + restStroke + ');' +
                 '}';
 
             return { fontFamilyStr: chain.join(', '), fontWeight: primaryWeight };
@@ -627,14 +899,27 @@
             void lyricMain.offsetHeight;
             void lyricTranslation.offsetHeight;
             
-            // 对卡拉OK模式的字符也应用字体
-            const karaokeChars = lyricMain.querySelectorAll('.lyric-karaoke-char');
-            karaokeChars.forEach(function(char) {
-                char.style.fontFamily = fontFamilyStr;
-                char.style.fontWeight = fontWeight;
-            });
-            
-            console.log('[Font] Font applied: family="' + fontFamilyStr + '", weight=' + fontWeight + ', karaokeChars=' + karaokeChars.length);
+            // 对卡拉OK模式的两层都应用字体（主歌词 + 译文）
+            const karaokeLine = lyricMain.querySelector('.lyric-karaoke-line');
+            if (karaokeLine) {
+                karaokeLine.style.fontFamily = fontFamilyStr;
+                karaokeLine.style.fontWeight = fontWeight;
+                const restEl = karaokeLine.querySelector('.karaoke-rest');
+                const hlEl = karaokeLine.querySelector('.karaoke-highlight');
+                if (restEl) { restEl.style.fontFamily = fontFamilyStr; restEl.style.fontWeight = fontWeight; }
+                if (hlEl) { hlEl.style.fontFamily = fontFamilyStr; hlEl.style.fontWeight = fontWeight; }
+            }
+            const transKaraokeLine = lyricTranslation.querySelector('.lyric-karaoke-line');
+            if (transKaraokeLine) {
+                transKaraokeLine.style.fontFamily = fontFamilyStr;
+                transKaraokeLine.style.fontWeight = fontWeight;
+                const restEl = transKaraokeLine.querySelector('.karaoke-rest');
+                const hlEl = transKaraokeLine.querySelector('.karaoke-highlight');
+                if (restEl) { restEl.style.fontFamily = fontFamilyStr; restEl.style.fontWeight = fontWeight; }
+                if (hlEl) { hlEl.style.fontFamily = fontFamilyStr; hlEl.style.fontWeight = fontWeight; }
+            }
+
+            console.log('[Font] Font applied: family="' + fontFamilyStr + '", weight=' + fontWeight + ', karaokeLine=' + (karaokeLine ? 'present' : 'none'));
             
             // 触发一次强制重绘：先清除再设置 font-family
             // 这是解决大字体首次加载不生效的关键步骤
@@ -685,9 +970,9 @@
                     if (pendingLyricUpdate) {
                         const update = pendingLyricUpdate;
                         pendingLyricUpdate = null;
-                        updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                        updateLyric(update.text, update.translation, update.karaoke, update.translation_karaoke, update.lineEndTime);
                     }
-                    
+
                     // 延迟再应用一次，确保浏览器完全加载字体
                     setTimeout(function() {
                         if (loadToken !== currentFontLoadToken) return;
@@ -696,7 +981,7 @@
                         if (pendingLyricUpdate) {
                             const update = pendingLyricUpdate;
                             pendingLyricUpdate = null;
-                            updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                            updateLyric(update.text, update.translation, update.karaoke, update.translation_karaoke, update.lineEndTime);
                         }
                     }, 300);
                     
@@ -768,22 +1053,29 @@
         
         function applySettingsWithoutFont() {
             document.body.style.color = lyricSettings.textColor;
-            const strokeColor = lyricSettings.strokeColor || '#000000';
+            const highlightStroke = lyricSettings.highlightStrokeColor || '#000000';
+            const restStroke = lyricSettings.restStrokeColor || '#000000';
+            const restColor = lyricSettings.restColor || '#999999';
+            // ⚠ 必须在 document.body 上设置内联变量，覆盖 body CSS 规则中的默认值
+            // 若设在 documentElement(html) 上，body 自身的规则变量会遮蔽继承值
+            document.body.style.setProperty('--highlight-color', lyricSettings.textColor);
+            document.body.style.setProperty('--highlight-stroke-color', highlightStroke);
+            document.body.style.setProperty('--rest-color', restColor);
+            document.body.style.setProperty('--rest-stroke-color', restStroke);
+            // 非卡拉OK模式的默认描边 = 已唱描边色
             const s = 1.5;
             const textShadow = 
-                '-' + s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
-                s + 'px -' + s + 'px 0 ' + strokeColor + ', ' +
-                '-' + s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
-                s + 'px ' + s + 'px 0 ' + strokeColor + ', ' +
-                '0 -' + s + 'px 0 ' + strokeColor + ', ' +
-                '0 ' + s + 'px 0 ' + strokeColor + ', ' +
-                '-' + s + 'px 0 0 ' + strokeColor + ', ' +
-                s + 'px 0 0 ' + strokeColor;
+                '-' + s + 'px -' + s + 'px 0 ' + highlightStroke + ', ' +
+                s + 'px -' + s + 'px 0 ' + highlightStroke + ', ' +
+                '-' + s + 'px ' + s + 'px 0 ' + highlightStroke + ', ' +
+                s + 'px ' + s + 'px 0 ' + highlightStroke + ', ' +
+                '0 -' + s + 'px 0 ' + highlightStroke + ', ' +
+                '0 ' + s + 'px 0 ' + highlightStroke + ', ' +
+                '-' + s + 'px 0 0 ' + highlightStroke + ', ' +
+                s + 'px 0 0 ' + highlightStroke;
             document.body.style.textShadow = textShadow;
             lyricTranslation.style.textShadow = textShadow;
             
-            // 使用当前字重（由 applyFontAndRefresh 设置），默认 400
-            // 关键修复：不再硬编码 900，否则自定义字体无法匹配
             document.body.style.fontWeight = currentFontWeight || '400';
             lyricMain.style.fontWeight = currentFontWeight || '400';
             lyricTranslation.style.fontWeight = currentFontWeight || '400';
@@ -791,7 +1083,19 @@
             fontSize = lyricSettings.fontSize;
             lyricMain.style.fontSize = fontSize + 'px';
             lyricTranslation.style.fontSize = Math.floor(fontSize * 0.57) + 'px';
-            document.documentElement.style.setProperty('--highlight-color', lyricSettings.textColor);
+
+            // 修复：只在 karaoke-mode class 状态与预期不一致时才重渲染
+            // 且必须有有效歌词内容，避免空行/设置变更导致文字消失
+            const hasKaraokeClass = lyricMain.classList.contains('karaoke-mode');
+            const hasKaraokePayload = lastLyricPayload && Array.isArray(lastLyricPayload.karaoke) && lastLyricPayload.karaoke.length > 0;
+            const expectedKaraoke = isKaraokeMode && hasKaraokePayload;
+            if (hasKaraokeClass !== expectedKaraoke && lastLyricPayload && lastLyricPayload.text
+                && !lastLyricPayload.text.startsWith('(空行)')) {
+                updateLyric(lastLyricPayload.text, lastLyricPayload.translation, lastLyricPayload.karaoke || [], lastLyricPayload.translation_karaoke || [], lastLyricPayload.lineEndTime);
+            } else if (hasKaraokeClass && expectedKaraoke) {
+                // 卡拉OK 模式未变，CSS 变量已自动生效（颜色/描边等）。
+                // 逐字 clip-path 进度由 rAF 循环持续更新，无需手动触发重绘。
+            }
         }
         
         // 兼容旧代码：applySettings 改为调用 applySettingsWithoutFont
@@ -806,33 +1110,57 @@
         loadSettings();
         
         // ============ 歌词更新 ============
-        function updateLyric(text, translation, karaoke, lineEndTime) {
+        function updateLyric(text, translation, karaoke, translationKaraoke, lineEndTime) {
             karaoke = karaoke || [];
-            
-            // 如果字体还没就绪，缓存歌词更新
+            translationKaraoke = translationKaraoke || [];
+            // 行变更（DOM 重建）后清空像素缓存，确保重新测量真实宽度
+            currentKaraokePixelMap = null;
+            currentTransKaraokePixelMap = null;
+
             if (!fontsReady && !isInitializing) {
-                pendingLyricUpdate = { text: text, translation: translation, karaoke: karaoke, lineEndTime: lineEndTime };
-                console.log('[Font] Font not ready, lyric update cached');
+                pendingLyricUpdate = { text: text, translation: translation, karaoke: karaoke, translation_karaoke: translationKaraoke, lineEndTime: lineEndTime };
                 return;
             }
-            
+
             if (text && !text.startsWith('(空行)')) {
                 if (isKaraokeMode && karaoke.length > 0) {
                     currentKaraokeSlots = _buildFlattenCharSlots(karaoke, lineEndTime);
                     if (currentKaraokeSlots.length > 0) {
-                        lyricMain.innerHTML = currentKaraokeSlots.map(function(slot) { 
-                            return '<span class="lyric-karaoke-char">' + slot.text + '</span>';
-                        }).join('');
+                        const escapedText = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        // 双层叠加：底层 rest（整行文本） + 顶层 highlight（逐字 span，每个字独立 clip-path）
+                        // 逐字方案：每个 .ks span 包裹一个字/词，--p 控制该字的可见百分比
+                        // 天然适配多行换行：每个字独立裁剪，不受整体 bounding box 影响
+                        // 关键：在 .ks 之间插入 <wbr>（HTML5 Word Break Opportunity 标签），
+                        // 让 inline-block 序列获得可换行点。
+                        // 否则连续的 inline-block 没有空白字符会构成不可分割的"词"，
+                        // 容器放不下时整串换到下一行（与 rest 的 CJK 自由换行行为不一致）。
+                        // <wbr> 零宽度、不影响视觉，比 \u200B 字符更可靠（元素级换行点）。
+                        var highlightSlotsHtml = '';
+                        for (var si = 0; si < currentKaraokeSlots.length; si++) {
+                            var escSlot = String(currentKaraokeSlots[si].text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            if (si > 0) highlightSlotsHtml += '<wbr>';
+                            highlightSlotsHtml += '<span class="ks" style="--p:0%">' + escSlot + '</span>';
+                        }
+                        lyricMain.innerHTML =
+                            '<span class="lyric-karaoke-line">' +
+                                '<span class="karaoke-rest">' + escapedText + '</span>' +
+                                '<span class="karaoke-highlight">' + highlightSlotsHtml + '</span>' +
+                            '</span>';
                         lyricMain.classList.add('karaoke-mode');
                         startKaraokeAnimation();
                         updateKaraokeDisplay();
-                        // 对卡拉OK字符应用当前字体
+                        // 对卡拉OK两层都应用当前字体
                         if (lastFontFamilyStr) {
-                            const chars = lyricMain.querySelectorAll('.lyric-karaoke-char');
-                            chars.forEach(function(char) {
-                                char.style.fontFamily = lastFontFamilyStr;
-                                char.style.fontWeight = currentFontWeight || '400';
-                            });
+                            const restEl = lyricMain.querySelector('.karaoke-rest');
+                            const hlEl = lyricMain.querySelector('.karaoke-highlight');
+                            if (restEl) {
+                                restEl.style.fontFamily = lastFontFamilyStr;
+                                restEl.style.fontWeight = currentFontWeight || '400';
+                            }
+                            if (hlEl) {
+                                hlEl.style.fontFamily = lastFontFamilyStr;
+                                hlEl.style.fontWeight = currentFontWeight || '400';
+                            }
                         }
                     } else {
                         lyricMain.textContent = text;
@@ -846,18 +1174,64 @@
                 }
                 lyricMain.classList.remove('empty');
             } else {
-                lyricMain.textContent = '';
-                lyricMain.classList.remove('karaoke-mode');
+                // 空行/空内容：保留现有文字（不清除），仅标记 empty 让其透明
+                // 修复：设置变更时若当前行是空行，不应该把已经显示的文字清掉
+                if (!lyricMain.classList.contains('karaoke-mode')) {
+                    // 非卡拉OK模式：直接清空
+                    lyricMain.textContent = '';
+                }
                 lyricMain.classList.add('empty');
                 stopKaraokeAnimation();
             }
-            
+
+            // 译文渲染：卡拉OK模式下有 translation_karaoke 时使用双层叠加
             if (translation && translation.trim()) {
-                lyricTranslation.textContent = translation;
+                if (isKaraokeMode && translationKaraoke.length > 0) {
+                    currentTransKaraokeSlots = _buildFlattenCharSlots(translationKaraoke, lineEndTime);
+                    if (currentTransKaraokeSlots.length > 0) {
+                        const escapedTrans = String(translation).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                        // 译文逐字 span（同主歌词原理，<wbr> 提供换行点）
+                        var transHighlightSlotsHtml = '';
+                        for (var ti = 0; ti < currentTransKaraokeSlots.length; ti++) {
+                            var escTransSlot = String(currentTransKaraokeSlots[ti].text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            if (ti > 0) transHighlightSlotsHtml += '<wbr>';
+                            transHighlightSlotsHtml += '<span class="ks" style="--p:0%">' + escTransSlot + '</span>';
+                        }
+                        lyricTranslation.innerHTML =
+                            '<span class="lyric-karaoke-line">' +
+                                '<span class="karaoke-rest">' + escapedTrans + '</span>' +
+                                '<span class="karaoke-highlight">' + transHighlightSlotsHtml + '</span>' +
+                            '</span>';
+                        lyricTranslation.classList.add('karaoke-mode');
+                        updateKaraokeDisplay();
+                        if (lastFontFamilyStr) {
+                            const restEl = lyricTranslation.querySelector('.karaoke-rest');
+                            const hlEl = lyricTranslation.querySelector('.karaoke-highlight');
+                            if (restEl) {
+                                restEl.style.fontFamily = lastFontFamilyStr;
+                                restEl.style.fontWeight = currentFontWeight || '400';
+                            }
+                            if (hlEl) {
+                                hlEl.style.fontFamily = lastFontFamilyStr;
+                                hlEl.style.fontWeight = currentFontWeight || '400';
+                            }
+                        }
+                    } else {
+                        lyricTranslation.textContent = translation;
+                        lyricTranslation.classList.remove('karaoke-mode');
+                        currentTransKaraokeSlots = [];
+                    }
+                } else {
+                    lyricTranslation.textContent = translation;
+                    lyricTranslation.classList.remove('karaoke-mode');
+                    currentTransKaraokeSlots = [];
+                }
                 lyricTranslation.classList.remove('empty');
             } else {
                 lyricTranslation.textContent = '';
                 lyricTranslation.classList.add('empty');
+                lyricTranslation.classList.remove('karaoke-mode');
+                currentTransKaraokeSlots = [];
             }
         }
         
@@ -871,7 +1245,7 @@
                 if (pendingLyricUpdate) {
                     const update = pendingLyricUpdate;
                     pendingLyricUpdate = null;
-                    updateLyric(update.text, update.translation, update.karaoke, update.lineEndTime);
+                    updateLyric(update.text, update.translation, update.karaoke, update.translation_karaoke, update.lineEndTime);
                 }
             }
         }, 2000);
@@ -924,6 +1298,9 @@
             if (window.electronAPI) {
                 window.electronAPI.saveLyricSettings({ karaokeMode: isKaraokeMode });
             }
+            // 立即重渲染当前歌词 → 切换卡拉OK结构/普通结构，避免文字消失/描边色
+            lyricSettings.karaokeMode = isKaraokeMode;
+            updateLyric(lastLyricPayload.text, lastLyricPayload.translation, lastLyricPayload.karaoke || [], lastLyricPayload.translation_karaoke || [], lastLyricPayload.lineEndTime);
         });
         
         fontPlusBtn.addEventListener('click', function() {

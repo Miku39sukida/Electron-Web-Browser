@@ -1,8 +1,8 @@
 # 🖥️ Electron Web Browser
 
 基于 Electron 框架的轻量网页浏览器，集成桌面悬浮歌词功能，专为配合 [无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer) 使用而设计。
-> 版本：**1.4**  
-> License：MIT  
+> 版本：**1.6**
+> License：MIT
 > 配合使用：[无缝循环播放器](https://github.com/Miku39sukida/SeamlessBGMPlayer)
 
 ---
@@ -122,6 +122,36 @@ Electron-Web-Browser/
 
 ## 📋 更新日志
 
+### v1.6
+- **卡拉OK高亮层换行错位修复（CSS Grid 重叠方案）**：
+  - 根因：旧方案用 `position: absolute` + `width: auto`（shrink-to-fit）定位高亮层，脱离文档流的宽度计算与底层 rest 层（正常 inline flow）不一致，导致两层换行点不同步，长文本换行时高亮文字偏移
+  - 修复：`.lyric-karaoke-line` 改为 `display: inline-grid; grid-template-areas: "lyric"`，rest 和 highlight 层占据同一 grid cell。cell 宽度由 rest 内容决定（正常 CJK 换行），highlight 层 `width: 100%` 强制同宽 → 两层换行点 100% 一致
+  - highlight 层添加 `position: relative`（grid item 默认非 positioning context，需显式设置才能让 `z-index` 生效）
+  - `.ks` 之间的 `\u200B`（零宽空格字符）替换为 `<wbr>`（HTML5 Word Break Opportunity 标签），换行点更可靠
+  - 主歌词和译文部分均做了同样修改
+- **卡拉OK未唱字符高亮泄漏修复**：
+  - 根因：`.ks` 的 `clip-path: inset(-3px calc(100% - var(--p) - 3px) -3px -3px)` 在 `--p: 0%`（未唱）时，left=-3px + right=calc(100%-3px) 产生 6px 宽可见条，导致每个未唱字符左侧残留 2-3 像素高亮
+  - 修复：改用 `padding: 0 3px; margin: 0 -3px` 扩大 border-box 覆盖描边（替代负 inset），clip-path 简化为 `inset(-3px calc(100% - var(--p)) -3px 0)`。`--p: 0%` 时 right=100% 完全不可见，`--p: 100%` 时 padding 覆盖描边，头尾 2-3 像素也完整高亮
+  - 主歌词和译文部分均做了同样修改
+
+### v1.5
+- **卡拉OK模式切换文字消失/变描边色修复**：
+  - 根因1：`.lyric-karaoke-line` 的 `-webkit-text-fill-color: transparent` 为全局规则，无作用域限定，关闭卡拉OK后 DOM 残留元素仍透明填充，仅 body 的 8 方向 text-shadow 描边可见
+  - 根因2：切换卡拉OK按钮仅改 `isKaraokeMode` 标志，未重新渲染 DOM 结构，开→关时仍是透明填充的卡拉OK span，关→开时仍是普通 textContent 无动画行
+  - 修复方案：
+    - CSS 作用域限定：渐变填充 + `background-clip:text` + 透明 fill 全部放入 `.lyric-main.karaoke-mode .lyric-karaoke-line` 选择器下，非卡拉OK模式不受影响
+    - 缓存最后一次歌词 payload：`lastLyricPayload` 在每次 `onLyricUpdate` 时保存
+    - 卡拉OK按钮切换后立即调用 `updateLyric(lastLyricPayload...)` 重新生成正确的 DOM 结构
+    - `applySettingsWithoutFont` 在检测到卡拉OK class 存在性与预期不一致时，仅在 payload.text 非空且非空行时重渲染，防止空歌词清空显示
+- **卡拉OK动画渲染方案优化**：原 `background-clip: text` + `linear-gradient(calc...)` 在 Electron 透明窗口渲染不稳定，渐变背景经常不显示，只剩描边。改为**双层叠加方案**：底层 `.karaoke-rest`（未唱文字+未唱描边，`z-index:1`）、顶层 `.karaoke-highlight`（已唱文字+已唱描边+发光，`z-index:2`，用 `clip-path: inset(0 calc(100% - var(--progress, 0%)) 0 0)` 从左到右裁剪）。每层独立填充色和描边色，彻底规避 `background-clip:text` 兼容问题
+- **修复设置变更后桌面歌词消失**：`applySettingsWithoutFont` 在模式不一致时调用 `updateLyric` 会用空 payload 清空歌词。修复为仅在 `lastLyricPayload.text` 非空且非 `(空行)` 时触发重渲染；模式未变时只更新 CSS 变量，无需重写 DOM
+- **卡拉OK四层颜色配置（已唱/未唱独立文字色+描边色）**：
+  - 新增 4 个设置项：`textColor` 已唱文字颜色（原「文字颜色」改名）、`highlightStrokeColor` 已唱描边颜色（原「描边颜色」改名）、`restColor` 未唱文字颜色（新增，默认 `#999999`）、`restStrokeColor` 未唱描边颜色（新增，默认 `#000000`）
+  - `lyric-settings.html` 设置面板：颜色块从 2 个改为 4 个，分别独立的预览样例（带相同描边模拟桌面效果）
+  - `main.js` 默认配置、`loadSettings` 合并 defaults、desktop-lyric 的 `lyricSettings` 默认值、`applySettingsWithoutFont` 全部同步更新
+- **CSS 变量作用域修复**：颜色变量写入位置从 `document.documentElement`（`<html>`）改为 `document.body`。原 body CSS 规则中定义了同名默认值，从 html 继承的值会被 body 自身规则覆盖，导致用户设置永远不生效
+- **主进程 `saveLyricSettings` 与 `loadSettings` 默认值同步**：新增 `restColor` / `restStrokeColor` / `highlightStrokeColor` 三个字段的默认值与旧 `strokeColor` 字段清理，防止旧 settings.json 迁移时字段缺失
+
 ### v1.4
 - **桌面歌词主进程后台推送优化**：主进程 60fps 推送逻辑增加 `loopEndS` 参数缓存，与渲染端歌词结束拍设置同步，确保窗口最小化时歌词位置估算与前台一致
 - **回退字重匹配修复**：回退字体注册时使用与主字体相同的字重（`primaryLoaded ? primaryWeight : '400'`），避免浏览器因字重不一致对回退字体合成加粗效果
@@ -133,6 +163,7 @@ Electron-Web-Browser/
 - **搜索建议功能**：主页搜索框新增实时搜索建议，调用百度 sugrec API 获取关键词联想词，支持键盘导航（↑↓选择、Enter确认、Escape关闭），关键词高亮显示，300ms 防抖避免过快请求
 - **搜索引擎保存**：修复搜索引擎选择保存逻辑，关闭应用后重新打开自动恢复上次选择的搜索引擎（百度、Bing、B站等）
 - **下载功能修复**：修复下载处理器初始化时序问题，确保默认 session 的 `will-download` 事件正确注册；关闭"下载前询问"时自动下载到设置目录并加入下载列表；开启时弹出保存对话框，取消也会记录到列表
+- **BV号直达**：地址栏支持直接输入B站视频BV号（如 BV1xx411x7xx），自动跳转到对应视频页面
 
 ### v1.3
 - **桌面歌词零延迟推送**：主进程 Node.js `setInterval(16ms)` 始终以 60fps 推送桌面歌词，渲染端通过 rAF 每帧同步音频时间 `{audioTime, wallClock}`，主进程用墙钟时间插值估算当前音频位置；窗口最小化时主进程继续推送，彻底绕过 Chromium 对渲染进程定时器的节流（`backgroundThrottling: false` 无法阻止节流，且会导致 `visibilitychange` 不触发）

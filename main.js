@@ -26,7 +26,9 @@ let downloadSettings = {
   lyricWindowSize: { width: 600, height: 150 },
   lyricSettings: {
     textColor: '#ffffff',
-    strokeColor: '#000000',
+    highlightStrokeColor: '#000000',
+    restColor: '#999999',
+    restStrokeColor: '#000000',
     fontSize: 28,
     fontFamily: 'Microsoft YaHei',
     fontFallback: 'Microsoft YaHei',
@@ -66,7 +68,9 @@ function loadSettings() {
       if (saved.lyricSettings) {
         const defaults = {
           textColor: '#ffffff',
-          strokeColor: '#000000',
+          highlightStrokeColor: '#000000',
+          restColor: '#999999',
+          restStrokeColor: '#000000',
           fontSize: 28,
           fontFamily: 'Microsoft YaHei',
           fontFallback: 'Microsoft YaHei',
@@ -74,6 +78,7 @@ function loadSettings() {
         }
         downloadSettings.lyricSettings = { ...defaults, ...saved.lyricSettings }
         delete downloadSettings.lyricSettings.shadowColor
+        delete downloadSettings.lyricSettings.strokeColor
       }
     }
   } catch (err) {
@@ -903,6 +908,7 @@ function startLyricBgPush() {
       text: line.text || '',
       translation: line.translation || '',
       karaoke: line.karaoke || [],
+      translation_karaoke: line.translation_karaoke || [],
       lineEndTime: nextLine ? nextLine.time_sec : null,
       currentTime: estimatedTime
     });
@@ -1023,6 +1029,7 @@ ipcMain.handle('clear-desktop-lyric', () => {
       text: '',
       translation: '',
       karaoke: [],
+      translation_karaoke: [],
       lineEndTime: null,
       currentTime: 0
     });
